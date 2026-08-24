@@ -1,45 +1,31 @@
 {
-  // Visit https://aka.ms/tsconfig to read more about this file
   "compilerOptions": {
-    // File Layout
+    // === File Layout ===
     "rootDir": "./src",
     "outDir": "./dist",
 
-    // Environment Settings
-    // See also https://aka.ms/tsconfig/module
-    "module": "nodenext",
-    "target": "esnext",
-    "types": [],
-    // For nodejs:
-    // "lib": ["esnext"],
-    // "types": ["node"],
-    // and npm install -D @types/node
+    // === Module System ===
+    // commonjs = standard cho Node.js/Express backend
+    // nodenext thích hợp cho ESM thuần, dễ conflict với thư viện CJS như express
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "target": "ES2022",
+    "esModuleInterop": true,       // Cho phép import express from 'express' (thay vì import * as)
+    "allowSyntheticDefaultImports": true,
 
-    // Other Outputs
-    "sourceMap": true,
-    "declaration": true,
-    "declarationMap": true,
+    // === Type Checking ===
+    "strict": true,                // Bật tất cả strict checks (recommended)
+    "skipLibCheck": true,          // Bỏ qua type-check trong node_modules (tăng tốc build)
+    "forceConsistentCasingInFileNames": true,
 
-    // Stricter Typechecking Options
-    "noUncheckedIndexedAccess": true,
-    "exactOptionalPropertyTypes": true,
+    // === Strict Style (giữ để học tốt) ===
+    "noImplicitReturns": true,     // Hàm phải return ở tất cả code paths
+    "noUnusedLocals": true,        // Biến local không dùng → lỗi
+    "noUnusedParameters": true,    // Param không dùng → lỗi (dùng _ prefix để bypass)
 
-    // Style Options
-    "noImplicitReturns": true,
-    "noImplicitOverride": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    // "noFallthroughCasesInSwitch": true,
-    // "noPropertyAccessFromIndexSignature": true,
-
-    // Recommended Options
-    "strict": true,
-    "jsx": "react-jsx",
-    "verbatimModuleSyntax": true,
-    "isolatedModules": true,
-    "noUncheckedSideEffectImports": true,
-    "moduleDetection": "force",
-    "skipLibCheck": true,
-    "esModuleInterop": true,
-  }
+    // === Output ===
+    "sourceMap": true              // Giúp debug: map từ JS compiled về TS gốc
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"]
 }
