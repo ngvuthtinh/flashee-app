@@ -1,8 +1,12 @@
 import express from 'express';
+import cors from 'cors';
 import './config/db';
+import { errorHandler } from './middleware/errorHandler';
 
 const app = express();
 const PORT = process.env['PORT'] ?? 3000;
+
+app.use(cors());
 
 // Middleware parse JSON body
 app.use(express.json());
@@ -11,6 +15,8 @@ app.use(express.json());
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
+
+app.use(errorHandler);
 
 app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
