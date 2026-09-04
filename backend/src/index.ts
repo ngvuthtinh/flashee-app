@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import './config/db';
 import { errorHandler } from './middleware/errorHandler';
+import authRoutes from './routes/auth';
 
 const app = express();
 const PORT = process.env['PORT'] ?? 3000;
@@ -16,6 +17,7 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+app.use('/api/auth', authRoutes);
 app.use(errorHandler);
 
 app.listen(PORT, () => {
