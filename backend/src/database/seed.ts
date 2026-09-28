@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs';
 import { v7 as uuidv7 } from 'uuid';
 import pool from '../config/db';
+import { faker } from '@faker-js/faker';
 
 async function seed() {
     await pool.query('BEGIN');
@@ -20,6 +21,21 @@ async function seed() {
                 ($2, 'Test Customer', 'customer@flashee.dev', '0900000002', $4, 'CUSTOMER', NOW()),
                 ($3, 'Another Customer', 'customer2@flashee.dev', '0900000003', $4, 'CUSTOMER', NOW())
             ON CONFLICT (email_address) DO NOTHING;`, [uuidv7(), uuidv7(), uuidv7(), passwordHash]);
+
+        // Lấy lại id thật của admin từ DB (đúng dù user vừa tạo hay đã tồn tại từ lần seed trước)
+        const { rows: adminRows } = await pool.query<{ id: string }>(
+            `SELECT id FROM users WHERE email_address = $1;`,
+            ['admin@flashee.dev']
+        );
+        const adminId = adminRows[0]!.id;
+
+        await pool.query(`
+            INSERT INTO user_profiles (id, user_id, full_name, date_of_birth, avatar_url, bio)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (user_id) DO NOTHING;`,
+            [uuidv7(), adminId, faker.person.fullName(), faker.date.birthdate(), faker.image.avatar(), faker.lorem.sentence()]
+        );
+
 
         await pool.query('COMMIT');
         console.log('✅ Seed thành công!');
