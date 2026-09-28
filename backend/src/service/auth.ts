@@ -31,7 +31,7 @@ export const authService = {
 
         const newUser = await userRepository.create({...data, passwordHash,});
 
-        const token = generateToken(newUser.user_id, newUser.role);
+        const token = generateToken(newUser.id, newUser.role);
         return {
             user: sanitizeUser(newUser),
             token,
@@ -53,7 +53,7 @@ export const authService = {
             throw error;
         }
 
-        const token = generateToken(user.user_id, user.role);
+        const token = generateToken(user.id, user.role);
         return {
             user: sanitizeUser(user),
             token,

@@ -1,5 +1,5 @@
 export interface Order {
-    order_id: string;
+    id: string;
     user_id: string;
     order_code?: string;
     status: string;
@@ -14,7 +14,7 @@ export interface Order {
 }
 
 export interface OrderItem {
-    order_item_id: string;
+    id: string;
     order_id: string;
     product_variant_id: string;
     quantity: number;
@@ -23,7 +23,7 @@ export interface OrderItem {
 }
 
 export interface Payment {
-    payment_id: string;
+    id: string;
     order_id: string;
     payment_method: string;
     amount: number;
@@ -33,7 +33,7 @@ export interface Payment {
 }
 
 export interface Review {
-    review_id: string;
+    id: string;
     comment?: string;
     rating: number;
     order_item_id: string;

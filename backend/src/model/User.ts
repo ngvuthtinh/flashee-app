@@ -1,7 +1,7 @@
 export type UserRole = 'CUSTOMER' | 'ADMIN';
 
 export interface User {
-    user_id: string;
+    id: string;
     user_name: string;
     email_address: string;
     phone_number: string;
@@ -11,11 +11,12 @@ export interface User {
 }
 
 export interface Country {
-    country_id: string;
+    id: string;
     country_name?: string;
+    country_code: string;
 }
 export interface Address {
-    address_id: string;
+    id: string;
     name?: string;
     street?: string;
     ward?: string;
@@ -27,7 +28,7 @@ export interface Address {
     country_id: string;
 }
 export interface UserAddress {
-    user_address_id: string;
+    id: string;
     user_id: string;
     address_id: string;
     is_default: boolean;
