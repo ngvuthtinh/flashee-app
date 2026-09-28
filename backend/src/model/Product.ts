@@ -1,5 +1,5 @@
 export interface Product {
-    product_id: string;
+    id: string;
     name: string;
     description?: string;
     created_at?: Date;
@@ -7,26 +7,26 @@ export interface Product {
 }
 
 export interface ProductImage {
-    product_image_id: string;
+    id: string;
     product_id: string;
     image_url?: string;
     is_thumbnail?: boolean;
 }
 
 export interface Category {
-    category_id: string;
+    id: string;
     name?: string;
     description?: string;
 }
 
 export interface ProductCategory {
-    product_category_id: string;
+    id: string;
     product_id: string;
     category_id: string;
 }
 
 export interface ProductVariant {
-    product_variant_id: string;
+    id: string;
     product_id: string;
     sku: string;
     price: number;

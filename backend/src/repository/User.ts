@@ -13,13 +13,13 @@ export const userRepository = {
         const userId = uuidv7();
         const defaultRole = 'CUSTOMER';
 
-        const query = `INSERT INTO users (user_id, 
-                                            user_name, 
-                                            email_address, 
-                                            phone_number, 
-                                            password, 
-                                            role, 
-                                            created_at) 
+        const query = `INSERT INTO users (id,
+                                            user_name,
+                                            email_address,
+                                            phone_number,
+                                            password,
+                                            role,
+                                            created_at)
                                             VALUES ($1, $2, $3, $4, $5, $6, NOW()) RETURNING *;`;
 
         const values = [userId, data.user_name, data.email_address, data.phone_number, data.passwordHash, defaultRole];
@@ -28,7 +28,7 @@ export const userRepository = {
     },
 
     async findById(userId: string): Promise<User | null> {
-        const query = `SELECT * FROM users WHERE user_id = $1 LIMIT 1;`;
+        const query = `SELECT * FROM users WHERE id = $1 LIMIT 1;`;
         const result = await pool.query<User>(query, [userId]);
         return result.rows[0] || null;
     },
