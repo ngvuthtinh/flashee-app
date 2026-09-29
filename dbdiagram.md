@@ -50,6 +50,10 @@ Table user_address {
   address_id uuid [not null, ref: > addresses.id]
   is_default boolean [not null, default: false]
   updated_at timestamp [default: `now()`]
+
+  indexes {
+    user_id // Lấy hết địa chỉ đã lưu của 1 user (lúc checkout)
+  }
 }
 
 Table products {
@@ -66,6 +70,10 @@ Table product_images {
   image_url text
   is_thumbnail boolean
   updated_at timestamp [default: `now()`]
+
+  indexes {
+    product_id // Tải hết ảnh của 1 sản phẩm khi xem trang chi tiết
+  }
 }
 
 Table categories {
@@ -80,6 +88,10 @@ Table product_category {
   product_id uuid [not null, ref: > products.id]
   category_id uuid [not null, ref: > categories.id]
   updated_at timestamp [default: `now()`]
+
+  indexes {
+    (category_id, product_id) [unique] // Chống trùng gán 1 sản phẩm vào cùng 1 category 2 lần
+  }
 }
 
 Table product_variants {
@@ -93,8 +105,7 @@ Table product_variants {
   updated_at timestamp [default: `now()`]
 
   indexes {
-    product_id // FK index
-    (product_id, price) // Tối ưu lọc biến thể theo sản phẩm và giá
+    (product_id, price) // Tối ưu lọc biến thể theo sản phẩm và giá — cũng phục vụ query chỉ lọc product_id (leftmost prefix), nên không cần index đơn riêng
   }
 }
 
@@ -113,8 +124,7 @@ Table orders {
   updated_at timestamp
 
   indexes {
-    user_id // FK index
-    (user_id, created_at) // Tối ưu API: "Xem lịch sử mua hàng của tôi"
+    (user_id, created_at) // Tối ưu API: "Xem lịch sử mua hàng của tôi" — cũng phục vụ query chỉ lọc user_id (leftmost prefix), nên không cần index đơn riêng
     status // Tối ưu Dashboard Admin: "Lọc đơn hàng đang chờ xử lý"
   }
 }
@@ -162,6 +172,10 @@ Table payments {
   transaction_id varchar
   created_at timestamp [not null, default: `now()`]
   updated_at timestamp [default: `now()`]
+
+  indexes {
+    order_id // Lấy thông tin thanh toán khi xem chi tiết 1 đơn hàng
+  }
 }
 
 Table reviews {
@@ -175,7 +189,6 @@ Table reviews {
   updated_at timestamp [default: `now()`]
 
   indexes {
-    product_id // FK index để load danh sách đánh giá của 1 trang sản phẩm
-    (product_id, rating) // Tối ưu lọc review: "Xem đánh giá 5 sao của sản phẩm này"
+    (product_id, rating) // Tối ưu lọc review: "Xem đánh giá 5 sao của sản phẩm này" — cũng phục vụ query chỉ lọc product_id (leftmost prefix), nên không cần index đơn riêng
   }
 }
