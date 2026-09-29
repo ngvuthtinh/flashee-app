@@ -43,6 +43,7 @@ Staged roughly foundation → the hard concurrency core → scaling it for real 
 - ⬜ Testing strategy (unit vs. integration tests — especially ones that can actually catch race conditions, since those are the bugs most likely to hide until production)
 - ⬜ Observability (structured logging, metrics; there's already a bare `/health` route — grow it into real health/readiness checks)
 - ⬜ Auth hardening (refresh tokens, token revocation/blacklisting — current JWT setup has no way to invalidate a token before expiry)
+- ⬜ Session-based auth as a further extension after refresh tokens/blacklist land — user wants to explore JWT-in-session vs. session-in-JWT approaches, eventually moving to cookie-based sessions instead of the current header-based JWT
 
 (This list grows as the project surfaces new needs — it isn't fixed.)
 
