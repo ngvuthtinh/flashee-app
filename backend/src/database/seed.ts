@@ -1,48 +1,31 @@
-import bcrypt from 'bcryptjs';
-import { v7 as uuidv7 } from 'uuid';
+import fs from 'fs';
+import path from 'path';
 import pool from '../config/db';
-import { faker } from '@faker-js/faker';
+
+const SEEDS_DIR = path.join(__dirname, 'seeds');
 
 async function seed() {
-    await pool.query('BEGIN');
+    const files = fs
+        .readdirSync(SEEDS_DIR)
+        .filter((f) => f.endsWith('.sql'))
+        .sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
+
+    const client = await pool.connect();
     try {
-        await pool.query(`
-            INSERT INTO countries (id, country_name, country_code)
-            VALUES
-                ($1, 'Vietnam', '+84'),
-                ($2, 'United States', '+1')
-            ON CONFLICT (country_code) DO NOTHING;`, [uuidv7(), uuidv7()]);
-
-        const passwordHash = await bcrypt.hash('password123', 10);
-        await pool.query(`
-            INSERT INTO users (id, user_name, email_address, phone_number, password, role, created_at)
-            VALUES
-                ($1, 'Admin User', 'admin@flashee.dev', '0900000001', $4, 'ADMIN', NOW()),
-                ($2, 'Test Customer', 'customer@flashee.dev', '0900000002', $4, 'CUSTOMER', NOW()),
-                ($3, 'Another Customer', 'customer2@flashee.dev', '0900000003', $4, 'CUSTOMER', NOW())
-            ON CONFLICT (email_address) DO NOTHING;`, [uuidv7(), uuidv7(), uuidv7(), passwordHash]);
-
-        // Lấy lại id thật của admin từ DB (đúng dù user vừa tạo hay đã tồn tại từ lần seed trước)
-        const { rows: adminRows } = await pool.query<{ id: string }>(
-            `SELECT id FROM users WHERE email_address = $1;`,
-            ['admin@flashee.dev']
-        );
-        const adminId = adminRows[0]!.id;
-
-        await pool.query(`
-            INSERT INTO user_profiles (id, user_id, full_name, date_of_birth, avatar_url, bio)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            ON CONFLICT (user_id) DO NOTHING;`,
-            [uuidv7(), adminId, faker.person.fullName(), faker.date.birthdate(), faker.image.avatar(), faker.lorem.sentence()]
-        );
-
-
-        await pool.query('COMMIT');
+        await client.query('BEGIN');
+        for (const file of files) {
+            const sql = fs.readFileSync(path.join(SEEDS_DIR, file), 'utf8');
+            await client.query(sql);
+            console.log(`▶ ${file}`);
+        }
+        await client.query('COMMIT');
         console.log('✅ Seed thành công!');
     } catch (error) {
-        await pool.query('ROLLBACK');
-        console.error('❌ Seed lỗi:', error);
+        await client.query('ROLLBACK');
+        console.error('❌ Seed lỗi, đã rollback:', error);
+        process.exitCode = 1;
     } finally {
+        client.release();
         await pool.end();
     }
 }
