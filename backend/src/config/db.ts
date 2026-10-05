@@ -18,25 +18,25 @@ const pool = new Pool({
   password: requireEnv('DB_PASSWORD'),
   database: requireEnv('DB_NAME'),
 
-  // Tối đa 10 connection đồng thời trong pool
+  // Maximum of 10 concurrent connections in the pool
   max: 10,
 
-  // Nếu connection chờ quá 30s mà không được dùng → bị đóng
+  // Close a connection that has sat idle (unused) for more than 30s
   idleTimeoutMillis: 30_000,
 
-  // Nếu chờ connection từ pool quá 5s → throw error thay vì chờ mãi
+  // Throw an error instead of waiting forever if no connection is available within 5s
   connectionTimeoutMillis: 5_000,
 });
 
-// Kiểm tra kết nối khi khởi động server
-// _client: prefix _ = quy ước "biết là có nhưng không dùng" → tắt cảnh báo noUnusedParameters
+// Verify the database connection on server startup
+// _client: the "_" prefix marks an intentionally unused parameter, silencing the noUnusedParameters error
 pool.connect((err, _client, release) => {
   if (err) {
     console.error('❌ Failed to connect to PostgreSQL:', err.message);
     return;
   }
   console.log('✅ PostgreSQL connected successfully');
-  release(); // Trả connection ngay về pool sau khi test xong
+  release(); // Return the connection to the pool right after the check
 });
 
 export default pool;

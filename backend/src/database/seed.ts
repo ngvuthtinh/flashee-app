@@ -19,10 +19,10 @@ async function seed() {
             console.log(`▶ ${file}`);
         }
         await client.query('COMMIT');
-        console.log('✅ Seed thành công!');
+        console.log('✅ Seed completed successfully!');
     } catch (error) {
         await client.query('ROLLBACK');
-        console.error('❌ Seed lỗi, đã rollback:', error);
+        console.error('❌ Seed failed, rolled back:', error);
         process.exitCode = 1;
     } finally {
         client.release();

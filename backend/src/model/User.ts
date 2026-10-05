@@ -35,7 +35,7 @@ export interface UserAddress {
 }
 
 // ==========================================
-// 2. DTO dùng cho Auth (Đăng ký / Đăng nhập)
+// 2. DTOs for Auth (Register / Login)
 // ==========================================
 export interface RegisterDTO {
   user_name: string;
@@ -47,5 +47,5 @@ export interface LoginDTO {
   email_address: string;
   password: string;
 }
-// User an toàn gửi về Frontend (ẩn password)
+// User that is safe to send to the Frontend (password hidden)
 export type SafeUser = Omit<User, 'password'>;

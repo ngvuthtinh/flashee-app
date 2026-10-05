@@ -52,7 +52,7 @@ Table user_address {
   updated_at timestamp [default: `now()`]
 
   indexes {
-    user_id // Lấy hết địa chỉ đã lưu của 1 user (lúc checkout)
+    user_id // Fetch all saved addresses of a user (at checkout)
   }
 }
 
@@ -72,7 +72,7 @@ Table product_images {
   updated_at timestamp [default: `now()`]
 
   indexes {
-    product_id // Tải hết ảnh của 1 sản phẩm khi xem trang chi tiết
+    product_id // Load all images of a product on the detail page
   }
 }
 
@@ -90,7 +90,7 @@ Table product_category {
   updated_at timestamp [default: `now()`]
 
   indexes {
-    (category_id, product_id) [unique] // Chống trùng gán 1 sản phẩm vào cùng 1 category 2 lần
+    (category_id, product_id) [unique] // Prevent assigning the same product to the same category twice
   }
 }
 
@@ -105,7 +105,7 @@ Table product_variants {
   updated_at timestamp [default: `now()`]
 
   indexes {
-    (product_id, price) // Tối ưu lọc biến thể theo sản phẩm và giá — cũng phục vụ query chỉ lọc product_id (leftmost prefix), nên không cần index đơn riêng
+    (product_id, price) // Optimizes filtering variants by product and price — also serves queries filtering by product_id alone (leftmost prefix), so no separate single-column index is needed
   }
 }
 
@@ -124,8 +124,8 @@ Table orders {
   updated_at timestamp
 
   indexes {
-    (user_id, created_at) // Tối ưu API: "Xem lịch sử mua hàng của tôi" — cũng phục vụ query chỉ lọc user_id (leftmost prefix), nên không cần index đơn riêng
-    status // Tối ưu Dashboard Admin: "Lọc đơn hàng đang chờ xử lý"
+    (user_id, created_at) // Optimizes the API "view my order history" — also serves queries filtering by user_id alone (leftmost prefix), so no separate single-column index is needed
+    status // Optimizes the Admin dashboard: "filter pending orders"
   }
 }
 
@@ -144,7 +144,7 @@ Table cart_items {
   updated_at timestamp [default: `now()`]
 
   indexes {
-    (cart_id, product_variant_id) [unique] // Đảm bảo 1 món chỉ xuất hiện 1 dòng trong giỏ (trùng thì tăng quantity)
+    (cart_id, product_variant_id) [unique] // Ensure an item appears in only one row per cart (if it repeats, increase quantity)
   }
 }
 
@@ -158,8 +158,8 @@ Table order_items {
   updated_at timestamp [default: `now()`]
 
   indexes {
-    order_id // FK index để load chi tiết đơn
-    product_variant_id // FK index để thống kê món nào bán chạy
+    order_id // FK index to load order details
+    product_variant_id // FK index to compute which items sell best
   }
 }
 
@@ -174,7 +174,7 @@ Table payments {
   updated_at timestamp [default: `now()`]
 
   indexes {
-    order_id // Lấy thông tin thanh toán khi xem chi tiết 1 đơn hàng
+    order_id // Fetch payment info when viewing an order's details
   }
 }
 
@@ -189,6 +189,6 @@ Table reviews {
   updated_at timestamp [default: `now()`]
 
   indexes {
-    (product_id, rating) // Tối ưu lọc review: "Xem đánh giá 5 sao của sản phẩm này" — cũng phục vụ query chỉ lọc product_id (leftmost prefix), nên không cần index đơn riêng
+    (product_id, rating) // Optimizes filtering reviews: "view the 5-star reviews of this product" — also serves queries filtering by product_id alone (leftmost prefix), so no separate single-column index is needed
   }
 }

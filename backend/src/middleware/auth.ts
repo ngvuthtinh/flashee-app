@@ -34,7 +34,7 @@ export function restrictTo(...allowedRoles: UserRole[]) {
     return (req: Request, _res: Response, next: NextFunction) => {
         if (!req.user || !allowedRoles.includes(req.user.role)) {
             const error: any = new Error('Forbidden: You do not have permission to perform this action');
-            error.statusCode = 403; // 403 Forbidden (Đã đăng nhập nhưng không đủ thẩm quyền)
+            error.statusCode = 403; // 403 Forbidden (logged in but lacking permission)
             return next(error);
         }
 
