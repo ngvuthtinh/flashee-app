@@ -1,4 +1,4 @@
-import { v7 as uuidv7 } from 'uuid'; // Import UUID v7
+import { v7 as uuidv7 } from 'uuid'; 
 import pool from'../config/db';
 import { User, RegisterDTO } from '../model/User';
 

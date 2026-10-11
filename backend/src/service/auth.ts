@@ -3,8 +3,16 @@ import jwt from 'jsonwebtoken';
 import { userRepository } from '../repository/User';
 import { RegisterDTO, LoginDTO, SafeUser } from '../model/User';
 
-const JWT_SECRET = process.env['JWT_SECRET'] || 'default_secret';
-const JWT_EXPIRES_IN = process.env['JWT_EXPIRES_IN'] || '7d';
+const jwtSecretEnv  = process.env['JWT_SECRET'];
+if (!jwtSecretEnv) {
+    throw new Error('JWT_SECRET is not defined in the environment variables');
+}
+const JWT_SECRET: string = jwtSecretEnv;
+
+const JWT_EXPIRES_IN = process.env['JWT_EXPIRES_IN'];
+if (!JWT_EXPIRES_IN) {
+    throw new Error('JWT_EXPIRES_IN is not defined in the environment variables');
+}
 
 function generateToken(userId: string, role: string): string {
     return jwt.sign({userId, role}, JWT_SECRET, {
@@ -26,7 +34,7 @@ export const authService = {
             throw error;
         }
 
-        const salt = await bcrypt.genSalt(10);
+        const salt = await bcrypt.genSalt(12);
         const passwordHash = await bcrypt.hash(data.password, salt);
 
         const newUser = await userRepository.create({...data, passwordHash,});

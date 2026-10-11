@@ -2,7 +2,17 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { UserRole } from '../model/User';
 
-const JWT_SECRET = process.env['JWT_SECRET'] || 'default_secret';
+const jwtSecretEnv  = process.env['JWT_SECRET'];
+if (!jwtSecretEnv) {
+    throw new Error('JWT_SECRET is not defined in the environment variables');
+}
+const JWT_SECRET: string = jwtSecretEnv;
+
+const jwtExpiresInEnv = process.env['JWT_EXPIRES_IN'];
+if (!jwtExpiresInEnv) {
+    throw new Error('JWT_EXPIRES_IN is not defined in the environment variables');
+}
+const JWT_EXPIRES_IN: string = jwtExpiresInEnv;
 
 export function protect(req: Request, _res: Response, next: NextFunction) {
     const authHeader = req.headers.authorization;
