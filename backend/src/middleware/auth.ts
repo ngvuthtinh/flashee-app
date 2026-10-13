@@ -12,7 +12,6 @@ const jwtExpiresInEnv = process.env['JWT_EXPIRES_IN'];
 if (!jwtExpiresInEnv) {
     throw new Error('JWT_EXPIRES_IN is not defined in the environment variables');
 }
-const JWT_EXPIRES_IN: string = jwtExpiresInEnv;
 
 export function protect(req: Request, _res: Response, next: NextFunction) {
     const authHeader = req.headers.authorization;
@@ -44,7 +43,7 @@ export function restrictTo(...allowedRoles: UserRole[]) {
     return (req: Request, _res: Response, next: NextFunction) => {
         if (!req.user || !allowedRoles.includes(req.user.role)) {
             const error: any = new Error('Forbidden: You do not have permission to perform this action');
-            error.statusCode = 403; // 403 Forbidden (logged in but lacking permission)
+            error.statusCode = 403;
             return next(error);
         }
 

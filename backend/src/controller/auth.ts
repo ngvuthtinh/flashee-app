@@ -4,7 +4,8 @@ import { authService } from '../service/auth';
 export const authController = {
     async register(req: Request, res: Response, next: NextFunction) {
         try {
-            const result = await authService.register(req.body);
+            const userAgent = req.headers['user-agent'] ?? null;
+            const result = await authService.register(req.body, userAgent);
 
             res.status(201).json({
                 success: true,
@@ -18,7 +19,8 @@ export const authController = {
 
     async login(req: Request, res: Response, next: NextFunction) {
         try {
-            const result = await authService.login(req.body);
+            const userAgent = req.headers['user-agent'] ?? null;
+            const result = await authService.login(req.body, userAgent);
 
             res.status(201).json({
                 success: true,
