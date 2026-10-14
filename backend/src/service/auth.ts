@@ -28,6 +28,9 @@ function sanitizeUser(user: any): SafeUser {
 }
 
 const REFRESH_TOKEN_TTL_DAYS = 30;
+// Computed once at startup; used to keep login timing equal when the email doesn't exist
+const DUMMY_HASH = bcrypt.hashSync('dummy-password', 12);
+
 
 function hashToken(token: string): string {
     return crypto.createHash('sha256').update(token).digest('hex');
@@ -73,14 +76,10 @@ export const authService = {
 
     async login(data: LoginDTO, userAgent: string | null): Promise<{ user: SafeUser; accessToken: string, refreshToken: string }> {
         const user = await userRepository.findByEmail(data.email_address);
-        if (!user) {
-            const error: any = new Error('Email or Password is wrong');
-            error.statusCode = 401;
-            throw error;
-        }
+        const hashToCompare = user ? user.password : DUMMY_HASH;
+        const isPasswordMatch = await bcrypt.compare(data.password, hashToCompare);
 
-        const isPasswordMatch = await bcrypt.compare(data.password, user.password);
-        if (!isPasswordMatch) {
+        if (!user || !isPasswordMatch) {
             const error: any = new Error('Email or Password is wrong');
             error.statusCode = 401;
             throw error;

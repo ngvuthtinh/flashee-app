@@ -29,9 +29,19 @@
 **Mục tiêu:** Tăng cường an toàn xác thực và kiểm soát thu hồi phiên đăng nhập.
 
 **Checklist thực hiện:**
-- [ ] Thống nhất thuật toán băm mật khẩu chuẩn (Argon2id hoặc Bcrypt với cost factor ≥ 12).
-- [ ] Tạo bảng `refresh_tokens`: Lưu refresh token đã cấp, gắn với `user_id`, thông tin thiết bị/User-Agent, thời gian hết hạn (`expires_at`).
+- [x] Thống nhất thuật toán băm mật khẩu chuẩn (Argon2id hoặc Bcrypt với cost factor ≥ 12).
+- [x] Tạo bảng `refresh_tokens`: Lưu refresh token đã cấp, gắn với `user_id`, thông tin thiết bị/User-Agent, thời gian hết hạn (`expires_at`).
 - [ ] Xây dựng cơ chế `revoked_tokens` / `blacklist`: Lưu token bị hủy khi user logout hoặc đổi mật khẩu để từ chối truy cập ngay lập tức.
+
+**Refresh token rotation (đang làm):**
+- [x] A. Tạo `database/transaction.ts` với `withTransaction` (BEGIN/COMMIT/ROLLBACK + `client.release()`), export kiểu `Db = Pool | PoolClient`.
+- [x] B. `refreshTokenRepository` nhận thêm tham số `db: Db = pool`; thêm `revokeAllByUserId`.
+- [ ] C. `authService.refresh`: không thấy → 401; đã revoke (reuse) → thu hồi toàn bộ token của user + 401; hết hạn → 401; hợp lệ → revoke cũ + phát mới trong 1 transaction.
+- [ ] D. Controller + route `POST /api/auth/refresh`.
+- [ ] E. `POST /api/auth/logout`: revoke refresh token hiện tại.
+- [ ] Test Postman: R1 → R2 OK; dùng lại R1 → 401 và R2 cũng bị revoke.
+- [ ] Rút `JWT_EXPIRES_IN` xuống ~15m sau khi `/refresh` chạy được.
+- Ghi nhớ: 2 request refresh cùng 1 token đến cùng lúc có thể cùng qua bước kiểm tra (race) → xử lý bằng `SELECT ... FOR UPDATE` ở Stage 2.
 
 ### 4. User Profile & Ranking System
 
@@ -40,6 +50,20 @@
 **Checklist thực hiện:**
 - [ ] Tạo bảng `user_profiles`: Chứa thông tin cá nhân (họ tên, ngày sinh, avatar, bio...), liên kết 1-1 với `users`.
 - [ ] Thiết kế cơ chế User Ranking (Bạc, Vàng, Kim Cương...) để áp dụng chính sách chiết khấu/ưu đãi.
+
+### 11. Auth Cleanup & Input Validation
+
+**Mục tiêu:** Xử lý các điểm yếu phát hiện khi review auth hiện tại; làm xong refresh token (Task 3) trước rồi mới làm task này.
+
+**Checklist thực hiện:**
+- [x] `login` trả `200` thay vì `201`.
+- [x] Chống timing attack ở `login`: luôn chạy `bcrypt.compare` (hash giả khi email không tồn tại), gộp 2 nhánh `throw` thành một.
+- [x] `DUMMY_HASH` tính 1 lần ở cấp module (không đặt trong hàm vì `hashSync` chặn event loop).
+- [x] `user_agent`: cắt còn tối đa 255 ký tự (cột `varchar(255)`) bằng hàm `getUserAgent(req)` dùng chung cho register/login/refresh (refresh sẽ dùng khi làm phần D).
+- [ ] Tạo class `AppError` (statusCode + message) thay cho `const error: any = new Error(...)` lặp lại; `errorHandler` trả lỗi theo một shape thống nhất.
+- [ ] Middleware validate đầu vào (email, password, phone_number...) trả 400 kèm lỗi theo từng field; quyết định tự viết hay dùng `zod`.
+- [ ] `register`: bắt lỗi UNIQUE (`23505`) khi 2 request cùng email → trả 400 thay vì 500 (race check-then-act; UNIQUE trong DB là trọng tài cuối).
+- [ ] (Stage 4) `protect` chưa chặn được token đã thu hồi: cân nhắc access token ngắn hạn + blacklist/`jti` (có thể dùng cache Redis để tra nhanh).
 
 ## EPIC 3: CATALOG & INVENTORY
 
