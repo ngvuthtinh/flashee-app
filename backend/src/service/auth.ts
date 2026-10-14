@@ -4,6 +4,9 @@ import { userRepository } from '../repository/User';
 import { RegisterDTO, LoginDTO, SafeUser } from '../model/User';
 import crypto from 'crypto';
 import { refreshTokenRepository } from '../repository/RefreshToken';
+import pool from '../config/db';
+import { Db, withTransaction } from '../database/transaction';
+
 
 const jwtSecretEnv = process.env['JWT_SECRET'];
 if (!jwtSecretEnv) {
@@ -36,7 +39,7 @@ function hashToken(token: string): string {
     return crypto.createHash('sha256').update(token).digest('hex');
 }
 
-async function issueRefreshToken(userId: string, userAgent: string | null): Promise<string> {
+async function issueRefreshToken(userId: string, userAgent: string | null, db: Db = pool): Promise<string> {
     const refreshToken = crypto.randomBytes(48).toString('hex');
     const expiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000);
 
@@ -45,9 +48,15 @@ async function issueRefreshToken(userId: string, userAgent: string | null): Prom
         tokenHash: hashToken(refreshToken),
         userAgent,
         expiresAt,
-    });
+    }, db);
 
     return refreshToken;
+}
+
+function unauthorized(message: string) {
+    const error: any = new Error(message);
+    error.statusCode = 401;
+    return error;
 }
 
 export const authService = {
@@ -94,4 +103,34 @@ export const authService = {
             refreshToken,
         };
     },
+
+    async refresh(refreshToken: string, userAgent: string | null): Promise<{ accessToken: string; refreshToken: string }> {
+        const stored = await refreshTokenRepository.findByHash(hashToken(refreshToken));
+        if (!stored) {
+            throw unauthorized('Invalid refresh token');
+        }
+
+        if (stored.revoked_at) {
+            await refreshTokenRepository.revokeAllByUserId(stored.user_id);
+            throw unauthorized('Refresh token reuse detected');
+        }
+
+        if (stored.expires_at < new Date()) {
+            throw unauthorized('Refresh token expired');
+        }
+
+        const user = await userRepository.findById(stored.user_id);
+        if (!user) {
+            throw unauthorized('Invalid refresh token');
+        }
+
+        return withTransaction(async (client) => {
+            await refreshTokenRepository.revoke(stored.id, client);
+            const newRefreshToken = await issueRefreshToken(user.id, userAgent, client);
+            return {
+                accessToken: generateToken(user.id, user.role),
+                refreshToken: newRefreshToken
+            };
+        });
+    }
 };
