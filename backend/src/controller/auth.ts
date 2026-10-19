@@ -57,5 +57,25 @@ export const authController = {
         } catch (error) {
             next(error);
         }
-    }
+    },
+
+    async logout(req: Request, res: Response, next: NextFunction) {
+        try {
+            const { refreshToken } = req.body;
+            if (!refreshToken || typeof refreshToken !== 'string') {
+                const error: any = new Error('refreshToken is required');
+                error.statusCode = 400;
+                throw error;
+            }
+
+            await authService.logout(refreshToken);
+
+            res.status(200).json({
+                success: true,
+                message: 'Logged out successfully',
+            });
+        } catch (error) {
+            next(error);
+        }
+    },
 }

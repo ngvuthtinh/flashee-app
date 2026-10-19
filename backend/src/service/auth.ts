@@ -132,5 +132,12 @@ export const authService = {
                 refreshToken: newRefreshToken
             };
         });
-    }
+    },
+
+    async logout(refreshToken: string): Promise<void> {
+        const stored = await refreshTokenRepository.findByHash(hashToken(refreshToken));
+        if (stored && !stored.revoked_at) {
+            await refreshTokenRepository.revoke(stored.id);
+        }
+    },
 };
