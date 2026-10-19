@@ -6,7 +6,7 @@ import crypto from 'crypto';
 import { refreshTokenRepository } from '../repository/RefreshToken';
 import pool from '../config/db';
 import { Db, withTransaction } from '../database/transaction';
-
+import { AppError } from '../errors/AppError';
 
 const jwtSecretEnv = process.env['JWT_SECRET'];
 if (!jwtSecretEnv) {
@@ -53,19 +53,12 @@ async function issueRefreshToken(userId: string, userAgent: string | null, db: D
     return refreshToken;
 }
 
-function unauthorized(message: string) {
-    const error: any = new Error(message);
-    error.statusCode = 401;
-    return error;
-}
 
 export const authService = {
     async register(data: RegisterDTO, userAgent: string | null): Promise<{ user: SafeUser; accessToken: string, refreshToken: string }> {
         const existingUser = await userRepository.findByEmail(data.email_address);
         if (existingUser) {
-            const error: any = new Error('Email has already been used');
-            error.statusCode = 400;
-            throw error;
+            throw AppError.badRequest('Email has already been used');
         }
 
         const salt = await bcrypt.genSalt(12);
@@ -89,9 +82,7 @@ export const authService = {
         const isPasswordMatch = await bcrypt.compare(data.password, hashToCompare);
 
         if (!user || !isPasswordMatch) {
-            const error: any = new Error('Email or Password is wrong');
-            error.statusCode = 401;
-            throw error;
+            throw AppError.unauthorized('Email or Password is wrong');
         }
 
         const accessToken = generateToken(user.id, user.role);
@@ -107,21 +98,21 @@ export const authService = {
     async refresh(refreshToken: string, userAgent: string | null): Promise<{ accessToken: string; refreshToken: string }> {
         const stored = await refreshTokenRepository.findByHash(hashToken(refreshToken));
         if (!stored) {
-            throw unauthorized('Invalid refresh token');
+            throw AppError.unauthorized('Invalid refresh token');
         }
 
         if (stored.revoked_at) {
             await refreshTokenRepository.revokeAllByUserId(stored.user_id);
-            throw unauthorized('Refresh token reuse detected');
+            throw AppError.unauthorized('Refresh token reuse detected');
         }
 
         if (stored.expires_at < new Date()) {
-            throw unauthorized('Refresh token expired');
+            throw AppError.unauthorized('Refresh token expired');
         }
 
         const user = await userRepository.findById(stored.user_id);
         if (!user) {
-            throw unauthorized('Invalid refresh token');
+            throw AppError.unauthorized('Invalid refresh token');
         }
 
         return withTransaction(async (client) => {

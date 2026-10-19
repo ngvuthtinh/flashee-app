@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { authService } from '../service/auth';
+import { AppError } from '../errors/AppError';
 
 function getUserAgent(req: Request): string | null {
     const userAgent = req.headers['user-agent'];
@@ -41,9 +42,7 @@ export const authController = {
         try {
             const { refreshToken } = req.body;
             if (!refreshToken || typeof refreshToken !== 'string') {
-                const error: any = new Error('refreshToken is required');
-                error.statusCode = 400;
-                throw error;
+                throw AppError.badRequest('Email has already been used');
             }
 
             const userAgent = getUserAgent(req);
@@ -63,9 +62,7 @@ export const authController = {
         try {
             const { refreshToken } = req.body;
             if (!refreshToken || typeof refreshToken !== 'string') {
-                const error: any = new Error('refreshToken is required');
-                error.statusCode = 400;
-                throw error;
+                throw AppError.badRequest('Email has already been used');
             }
 
             await authService.logout(refreshToken);
