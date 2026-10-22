@@ -8,7 +8,6 @@ import pool from '../config/db';
 import { Db, withTransaction } from '../database/transaction';
 import { AppError } from '../errors/AppError';
 
-
 const jwtSecretEnv = process.env['JWT_SECRET'];
 if (!jwtSecretEnv) {
     throw new Error('JWT_SECRET is not defined in the environment variables');
@@ -69,7 +68,7 @@ export const authService = {
     async register(data: RegisterDTO, userAgent: string | null): Promise<{ user: SafeUser; accessToken: string, refreshToken: string }> {
         const existingUser = await userRepository.findByEmail(data.email_address);
         if (existingUser) {
-            throw new AppError(400, 'Email has already been used');
+            throw AppError.badRequest('Email has already been used');
         }
 
         const salt = await bcrypt.genSalt(12);
@@ -80,7 +79,7 @@ export const authService = {
             newUser = await userRepository.create({ ...data, passwordHash });
         } catch (error) {
             if (isUniqueViolation(error, 'users_email_address_key')) {
-                throw new AppError(400, 'Email has already been used');
+                throw AppError.badRequest('Email has already been used');
             }
             throw error;
         }
@@ -101,7 +100,7 @@ export const authService = {
         const isPasswordMatch = await bcrypt.compare(data.password, hashToCompare);
 
         if (!user || !isPasswordMatch) {
-            throw new AppError(401,'Email or Password is wrong');
+            throw AppError.unauthorized('Email or Password is wrong');
         }
 
         const accessToken = generateToken(user.id, user.role);
@@ -117,21 +116,21 @@ export const authService = {
     async refresh(refreshToken: string, userAgent: string | null): Promise<{ accessToken: string; refreshToken: string }> {
         const stored = await refreshTokenRepository.findByHash(hashToken(refreshToken));
         if (!stored) {
-            throw new AppError(401,'Invalid refresh token');
+            throw AppError.unauthorized('Invalid refresh token');
         }
 
         if (stored.revoked_at) {
             await refreshTokenRepository.revokeAllByUserId(stored.user_id);
-            throw new AppError(401,'Refresh token reuse detected');
+            throw AppError.unauthorized('Refresh token reuse detected');
         }
 
         if (stored.expires_at < new Date()) {
-            throw new AppError(401,'Refresh token expired');
+            throw AppError.unauthorized('Refresh token expired');
         }
 
         const user = await userRepository.findById(stored.user_id);
         if (!user) {
-            throw new AppError(401,'Invalid refresh token');
+            throw AppError.unauthorized('Invalid refresh token');
         }
 
         return withTransaction(async (client) => {
@@ -142,5 +141,12 @@ export const authService = {
                 refreshToken: newRefreshToken
             };
         });
-    }
+    },
+
+    async logout(refreshToken: string): Promise<void> {
+        const stored = await refreshTokenRepository.findByHash(hashToken(refreshToken));
+        if (stored && !stored.revoked_at) {
+            await refreshTokenRepository.revoke(stored.id);
+        }
+    },
 };

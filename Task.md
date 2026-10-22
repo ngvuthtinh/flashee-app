@@ -33,14 +33,14 @@
 - [x] Tạo bảng `refresh_tokens`: Lưu refresh token đã cấp, gắn với `user_id`, thông tin thiết bị/User-Agent, thời gian hết hạn (`expires_at`).
 - [ ] Xây dựng cơ chế `revoked_tokens` / `blacklist`: Lưu token bị hủy khi user logout hoặc đổi mật khẩu để từ chối truy cập ngay lập tức.
 
-**Refresh token rotation (đang làm):**
+**Refresh token rotation (xong):**
 - [x] A. Tạo `database/transaction.ts` với `withTransaction` (BEGIN/COMMIT/ROLLBACK + `client.release()`), export kiểu `Db = Pool | PoolClient`.
 - [x] B. `refreshTokenRepository` nhận thêm tham số `db: Db = pool`; thêm `revokeAllByUserId`.
-- [ ] C. `authService.refresh`: không thấy → 401; đã revoke (reuse) → thu hồi toàn bộ token của user + 401; hết hạn → 401; hợp lệ → revoke cũ + phát mới trong 1 transaction.
-- [ ] D. Controller + route `POST /api/auth/refresh`.
-- [ ] E. `POST /api/auth/logout`: revoke refresh token hiện tại.
-- [ ] Test Postman: R1 → R2 OK; dùng lại R1 → 401 và R2 cũng bị revoke.
-- [ ] Rút `JWT_EXPIRES_IN` xuống ~15m sau khi `/refresh` chạy được.
+- [x] C. `authService.refresh`: không thấy → 401; đã revoke (reuse) → thu hồi toàn bộ token của user + 401; hết hạn → 401; hợp lệ → revoke cũ + phát mới trong 1 transaction.
+- [x] D. Controller + route `POST /api/auth/refresh`.
+- [x] E. `POST /api/auth/logout`: revoke refresh token hiện tại.
+- [x] Test Postman: R1 → R2 OK; dùng lại R1 → 401 và R2 cũng bị revoke.
+- [x] Rút `JWT_EXPIRES_IN` xuống ~15m sau khi `/refresh` chạy được.
 - Ghi nhớ: 2 request refresh cùng 1 token đến cùng lúc có thể cùng qua bước kiểm tra (race) → xử lý bằng `SELECT ... FOR UPDATE` ở Stage 2.
 
 ### 4. User Profile & Ranking System
@@ -64,6 +64,15 @@
 - [ ] Middleware validate đầu vào (email, password, phone_number...) trả 400 kèm lỗi theo từng field; quyết định tự viết hay dùng `zod`.
 - [ ] `register`: bắt lỗi UNIQUE (`23505`) khi 2 request cùng email → trả 400 thay vì 500 (race check-then-act; UNIQUE trong DB là trọng tài cuối).
 - [ ] (Stage 4) `protect` chưa chặn được token đã thu hồi: cân nhắc access token ngắn hạn + blacklist/`jti` (có thể dùng cache Redis để tra nhanh).
+
+### 12. Google OAuth 2.0 Login
+
+**Mục tiêu:** Cho phép đăng nhập bằng tài khoản Google, làm sau khi xong Task 11.
+
+**Checklist thực hiện:**
+- [ ] Tìm hiểu luồng Authorization Code (redirect → callback → đổi code lấy token → lấy thông tin user) và vai trò của `state` chống CSRF.
+- [ ] Quyết định mô hình lưu danh tính: liên kết tài khoản Google vào `users` hiện có hay tạo bảng riêng (vd. `oauth_accounts`); xử lý user đã đăng ký bằng email trùng.
+- [ ] Route redirect + callback, sau đó phát access/refresh token của hệ thống như login thường.
 
 ## EPIC 3: CATALOG & INVENTORY
 

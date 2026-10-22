@@ -7,7 +7,7 @@ export function validateBody(schema: Schema) {
         const result = validate(schema, req.body);
 
         if (!result.ok) {
-            throw new AppError(400, 'Validation failed', result.errors)
+            throw AppError.badRequest('Validation failed', result.errors);
         }
 
         req.body = result.data;
