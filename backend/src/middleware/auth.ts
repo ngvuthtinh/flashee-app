@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { UserRole } from '../model/User';
+import { AppError } from '../errors/AppError';
 
 const jwtSecretEnv  = process.env['JWT_SECRET'];
 if (!jwtSecretEnv) {
@@ -17,9 +18,7 @@ export function protect(req: Request, _res: Response, next: NextFunction) {
     const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        const error: any = new Error('Unauthorized: Please login to get access');
-        error.statusCode = 401;
-        return next(error);
+       throw new AppError(401,'Unauthorized: Please login to get access');
     }
 
     const token = authHeader.split(' ')[1];
@@ -33,18 +32,14 @@ export function protect(req: Request, _res: Response, next: NextFunction) {
         req.user = decoded;
         next();
     } catch (err) {
-        const error: any = new Error('Unauthorized: Invalid or expired token');
-        error.statusCode = 401;
-        next(error);
+        throw new AppError(401,'Unauthorized: Invalid or expired token');
     };
 }
 
 export function restrictTo(...allowedRoles: UserRole[]) {
     return (req: Request, _res: Response, next: NextFunction) => {
         if (!req.user || !allowedRoles.includes(req.user.role)) {
-            const error: any = new Error('Forbidden: You do not have permission to perform this action');
-            error.statusCode = 403;
-            return next(error);
+            throw new AppError(403,'Forbidden: You do not have permission to perform this action');
         }
 
         next();

@@ -40,11 +40,6 @@ export const authController = {
     async refresh(req: Request, res: Response, next: NextFunction) {
         try {
             const { refreshToken } = req.body;
-            if (!refreshToken || typeof refreshToken !== 'string') {
-                const error: any = new Error('refreshToken is required');
-                error.statusCode = 400;
-                throw error;
-            }
 
             const userAgent = getUserAgent(req);
             const result = await authService.refresh(refreshToken, userAgent);
