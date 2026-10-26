@@ -4,8 +4,8 @@ export interface User {
     id: string;
     user_name: string;
     email_address: string;
-    phone_number: string;
-    password: string;
+    phone_number: string | null;
+    password: string | null;
     role: UserRole;
     created_at: Date;
 }

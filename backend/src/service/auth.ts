@@ -102,10 +102,10 @@ export const authService = {
 
     async login(data: LoginDTO, userAgent: string | null): Promise<{ user: SafeUser; accessToken: string, refreshToken: string }> {
         const user = await userRepository.findByEmail(normalizeEmail(data.email_address));
-        const hashToCompare = user ? user.password : DUMMY_HASH;
+        const hashToCompare = user?.password ?? DUMMY_HASH;
         const isPasswordMatch = await bcrypt.compare(data.password, hashToCompare);
 
-        if (!user || !isPasswordMatch) {
+        if (!user || !user.password || !isPasswordMatch) {
             throw AppError.unauthorized('Email or Password is wrong');
         }
 
