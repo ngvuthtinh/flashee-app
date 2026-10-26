@@ -1,11 +1,11 @@
 import { Request, Response, NextFunction } from 'express';
 import { authService } from '../service/auth';
+import { googleOAuthService } from '../service/googleOAuth';
 
 function getUserAgent(req: Request): string | null {
     const userAgent = req.headers['user-agent'];
     return userAgent ? userAgent.slice(0, 255) : null;
 }
-
 
 export const authController = {
     async register(req: Request, res: Response, next: NextFunction) {
@@ -78,4 +78,18 @@ export const authController = {
             next(error);
         }
     },
+
+    googleRedirect(_req: Request, res: Response) {
+        const state = googleOAuthService.generateState();
+
+        res.cookie('oauth_state', state, {
+            httpOnly: true,
+            sameSite: 'lax',
+            secure: process.env['NODE_ENV'] === 'production',
+            maxAge: 10 * 60 * 1000,
+            path: '/api/auth/google',
+        });
+        
+        res.redirect(googleOAuthService.buildAuthUrl(state));
+    }
 }

@@ -7,6 +7,7 @@ import { protect } from '../middleware/auth';
 const router  = Router();
 
 router.get('/me', protect, authController.me);
+router.get('/google', authController.googleRedirect);
 router.post('/register', validateBody(registerSchema), authController.register);
 router.post('/login', validateBody(loginSchema), authController.login);
 router.post('/refresh', validateBody(refreshSchema), authController.refresh);
