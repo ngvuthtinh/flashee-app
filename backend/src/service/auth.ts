@@ -39,6 +39,10 @@ function hashToken(token: string): string {
     return crypto.createHash('sha256').update(token).digest('hex');
 }
 
+function normalizeEmail(email: string): string {
+    return email.trim().toLowerCase();
+}
+
 async function issueRefreshToken(userId: string, userAgent: string | null, db: Db = pool): Promise<string> {
     const refreshToken = crypto.randomBytes(48).toString('hex');
     const expiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000);
@@ -66,7 +70,9 @@ function isUniqueViolation(error: unknown, constraint: string): boolean {
 
 export const authService = {
     async register(data: RegisterDTO, userAgent: string | null): Promise<{ user: SafeUser; accessToken: string, refreshToken: string }> {
-        const existingUser = await userRepository.findByEmail(data.email_address);
+        const email = normalizeEmail(data.email_address);
+
+        const existingUser = await userRepository.findByEmail(normalizeEmail(data.email_address));
         if (existingUser) {
             throw AppError.badRequest('Email has already been used');
         }
@@ -76,7 +82,7 @@ export const authService = {
 
         let newUser;
         try {
-            newUser = await userRepository.create({ ...data, passwordHash });
+            newUser = await userRepository.create({ ...data, email_address: email, passwordHash });
         } catch (error) {
             if (isUniqueViolation(error, 'users_email_address_key')) {
                 throw AppError.badRequest('Email has already been used');
@@ -95,7 +101,7 @@ export const authService = {
     },
 
     async login(data: LoginDTO, userAgent: string | null): Promise<{ user: SafeUser; accessToken: string, refreshToken: string }> {
-        const user = await userRepository.findByEmail(data.email_address);
+        const user = await userRepository.findByEmail(normalizeEmail(data.email_address));
         const hashToCompare = user ? user.password : DUMMY_HASH;
         const isPasswordMatch = await bcrypt.compare(data.password, hashToCompare);
 
@@ -149,4 +155,13 @@ export const authService = {
             await refreshTokenRepository.revoke(stored.id);
         }
     },
+
+    async getMe(userId: string): Promise<SafeUser> {
+        const user = await userRepository.findById(userId);
+        if (!user) {
+            throw AppError.unauthorized('User no longer exists');
+        }
+        return sanitizeUser(user);
+    },
+
 };

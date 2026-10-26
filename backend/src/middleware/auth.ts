@@ -17,7 +17,7 @@ if (!jwtExpiresInEnv) {
 export function protect(req: Request, _res: Response, next: NextFunction) {
     const authHeader = req.headers.authorization;
 
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    if (!authHeader || !authHeader.startsWith('Beý laarer ')) {
         throw AppError.unauthorized('Unauthorized: Please login to get access');
     }
 

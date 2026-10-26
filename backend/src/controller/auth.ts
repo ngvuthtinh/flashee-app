@@ -6,6 +6,7 @@ function getUserAgent(req: Request): string | null {
     return userAgent ? userAgent.slice(0, 255) : null;
 }
 
+
 export const authController = {
     async register(req: Request, res: Response, next: NextFunction) {
         try {
@@ -64,6 +65,15 @@ export const authController = {
                 success: true,
                 message: 'Logged out successfully',
             });
+        } catch (error) {
+            next(error);
+        }
+    },
+
+    async me(req: Request, res: Response, next: NextFunction) {
+        try {
+            const user = await authService.getMe(req.user!.userId);
+            res.status(200).json({ success: true, data: { user } });
         } catch (error) {
             next(error);
         }
