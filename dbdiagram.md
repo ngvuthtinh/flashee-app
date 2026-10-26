@@ -5,11 +5,13 @@ Table users {
   id uuid [primary key]
   user_name varchar [not null]
   email_address varchar [unique, not null]
-  phone_number varchar(20) [not null]
-  password varchar [not null]
+  phone_number varchar(20) // nullable: Google-only users have no phone number
+  password varchar // nullable: Google-only users have no password (login must reject NULL)
   role varchar [not null]
   created_at timestamp [not null]
-  updated_at timestamp [not null, default: `now()`]
+  updated_at timestamp [default: `now()`]
+
+  // CHECK (email_address = lower(email_address)): emails are always stored in lowercase
 }
 
 Table user_profiles {
@@ -21,6 +23,35 @@ Table user_profiles {
   bio text
   created_at timestamp [default: `now()`]
   updated_at timestamp [default: `now()`]
+}
+
+Table refresh_tokens {
+  id uuid [primary key]
+  user_id uuid [not null, ref: > users.id] // ON DELETE CASCADE
+  token_hash varchar [unique, not null] // SHA-256 of the token; the raw token is never stored
+  user_agent varchar(255)
+  expires_at timestamp [not null]
+  revoked_at timestamp // set when rotated/logged out; reuse of a revoked token revokes all of the user's tokens
+  created_at timestamp [default: `now()`]
+  updated_at timestamp [default: `now()`]
+
+  indexes {
+    user_id // Revoke all tokens of a user
+  }
+}
+
+Table oauth_accounts {
+  id uuid [primary key]
+  user_id uuid [not null, ref: > users.id] // ON DELETE CASCADE
+  provider varchar(50) [not null] // e.g. 'google'
+  provider_user_id varchar(255) [not null] // the provider's stable user id (Google `sub`), never the email
+  created_at timestamp [default: `now()`]
+  updated_at timestamp [default: `now()`]
+
+  indexes {
+    (provider, provider_user_id) [unique] // One external account can be linked only once; also serves the callback lookup
+    user_id // Linked providers of a user
+  }
 }
 
 Table countries {
