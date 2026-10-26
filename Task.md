@@ -69,10 +69,37 @@
 
 **Mục tiêu:** Cho phép đăng nhập bằng tài khoản Google, làm sau khi xong Task 11.
 
-**Checklist thực hiện:**
-- [ ] Tìm hiểu luồng Authorization Code (redirect → callback → đổi code lấy token → lấy thông tin user) và vai trò của `state` chống CSRF.
-- [ ] Quyết định mô hình lưu danh tính: liên kết tài khoản Google vào `users` hiện có hay tạo bảng riêng (vd. `oauth_accounts`); xử lý user đã đăng ký bằng email trùng.
-- [ ] Route redirect + callback, sau đó phát access/refresh token của hệ thống như login thường.
+**Quyết định thiết kế (ADR tóm tắt):**
+- Google chỉ xác thực danh tính; sau đó hệ thống cấp access/refresh token **của chính mình** (luồng OAuth hội tụ về cùng `issueRefreshToken` với login mật khẩu).
+- Lưu danh tính ở bảng riêng `oauth_accounts (provider, provider_user_id = sub)`, không thêm cột vào `users`; `users.password` và `phone_number` nullable.
+- Email đã đăng ký bằng mật khẩu → **từ chối** (không tự gộp), vì chưa có email verification nên tự gộp mở lỗ hổng pre-hijacking. Chỉ chấp nhận khi Google trả `email_verified = true`.
+- Giao phiên sau callback bằng **cookie `httpOnly`** (refresh token), không đặt token trên URL.
+
+**Đã xong:**
+- [x] Tìm hiểu luồng Authorization Code và vai trò của `state` chống CSRF.
+- [x] Quyết định mô hình lưu danh tính (bảng `oauth_accounts`) và chính sách email trùng (từ chối).
+- [x] Migration `oauth_accounts`, nới `users.password`/`phone_number` thành nullable.
+- [x] `GET /api/auth/google` (redirect + cookie `oauth_state`), `googleOAuthService` (`buildAuthUrl`, `exchangeCode`).
+- [x] `GET /api/auth/google/callback`: kiểm tra `state`, đổi code, `authService.loginWithGoogle` (tạo user + oauth_account + refresh token trong 1 transaction), đặt cookie `refresh_token`, redirect về `FRONTEND_URL`.
+- [x] `oauthAccountRepository`, `userRepository.createOAuthUser`, `cookie-parser`, `GET /api/auth/me`.
+- [x] Migration chuẩn hoá `created_at`/`updated_at` (DEFAULT `now()`, thêm `created_at` cho 8 bảng còn thiếu).
+
+**Còn lại để đóng Task 12 (theo thứ tự):**
+- [ ] Google Cloud Console: redirect URI khớp từng ký tự `http://localhost:3000/api/auth/google/callback`; thêm email vào *Test users* nếu consent screen đang ở chế độ Testing.
+- [ ] `/refresh` và `/logout` nhận refresh token từ **body hoặc cookie** `refresh_token`; bỏ `validateBody(refreshSchema)` ở hai route. Khi token đến từ cookie: `/refresh` đặt lại cookie bằng token mới (rotation) và chỉ trả `accessToken` trong body.
+- [ ] `/logout` xoá cookie `refresh_token` (`clearCookie` với cùng `path: '/api/auth'`); không có token vẫn trả 200 (idempotent).
+- [ ] Gom tuỳ chọn cookie (`httpOnly`, `sameSite`, `secure`, `path`, `maxAge`) thành một hằng dùng chung cho đặt/xoá cookie.
+- [ ] CORS: `cors({ origin: FRONTEND_URL, credentials: true })` thay cho `cors()` đang mở mọi origin.
+- [ ] `register` chạy trong `withTransaction` (tạo user + refresh token); `create` đã nhận `db`, chỉ cần bọc lại.
+- [ ] Test thật trên trình duyệt: `/api/auth/google` → đăng nhập Google → có cookie `refresh_token` → `/refresh` ra access token; email đã đăng ký mật khẩu bị từ chối; đăng nhập Google lần hai vào thẳng; user Google gọi `/login` bằng mật khẩu bị 401.
+- [ ] Cập nhật `dbdiagram.md` (`created_at` cho 8 bảng, `oauth_accounts`, nullable của `users`), viết ADR đầy đủ cho các quyết định trên.
+- [ ] Sửa nhỏ: `method: 'Post'` → `'POST'` trong `googleOAuth.ts`.
+
+**Ghi nhớ / để sau:**
+- Hai callback lần đầu của cùng một người chạy đồng thời có thể cùng qua bước kiểm tra rồi một cái bị UNIQUE từ chối (500) → xử lý bằng bắt `23505` hoặc locking ở Stage 2.
+- `/login` và `/register` vẫn trả refresh token trong JSON body; chuyển sang cookie để hai luồng hội tụ hoàn toàn (Stage 4: cookie session).
+- Lưu tên/avatar Google vào `user_profiles` (Task 4); hiện chỉ dùng `name` cho `users.user_name`.
+- Task 3: blacklist access token (`jti`); đổi mật khẩu/quên mật khẩu/email verification hoãn lại. Khi có email verification mới cân nhắc lại chính sách gộp tài khoản.
 
 ## EPIC 3: CATALOG & INVENTORY
 
