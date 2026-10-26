@@ -7,6 +7,8 @@ import { refreshTokenRepository } from '../repository/RefreshToken';
 import pool from '../config/db';
 import { Db, withTransaction } from '../database/transaction';
 import { AppError } from '../errors/AppError';
+import { oauthAccountRepository } from '../repository/OAuthAccount';
+import { GoogleProfile } from './googleOAuth';
 
 const jwtSecretEnv = process.env['JWT_SECRET'];
 if (!jwtSecretEnv) {
@@ -162,6 +164,34 @@ export const authService = {
             throw AppError.unauthorized('User no longer exists');
         }
         return sanitizeUser(user);
+    },
+
+    async loginWithGoogle(profile: GoogleProfile, userAgent: string | null): Promise<{ refreshToken: string }> {
+        if (!profile.emailVerified) {
+            throw AppError.badRequest('Google email is not verified');
+        }
+
+        const linked = await oauthAccountRepository.findByProviderUser('google', profile.sub);
+        if (linked) {
+            return { refreshToken: await issueRefreshToken(linked.user_id, userAgent) };
+        }
+
+        const email = normalizeEmail(profile.email);
+        if (await userRepository.findByEmail(email)) {
+            throw AppError.badRequest('Email has already been registered');
+        }
+
+        return withTransaction(async (client) => {
+            const user = await userRepository.createOAuthUser(
+                { userName: profile.name ?? email.split('@')[0]!, email },
+                client,
+            );
+            await oauthAccountRepository.create(
+                { userId: user.id, provider: 'google', providerUserId: profile.sub },
+                client,
+            );
+            return { refreshToken: await issueRefreshToken(user.id, userAgent, client) };
+        });
     },
 
 };

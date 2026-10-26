@@ -13,4 +13,5 @@ export const googleConfig = {
     clientId: required('GOOGLE_CLIENT_ID'),
     clientSecret: required('GOOGLE_CLIENT_SECRET'),
     redirectUri: required('GOOGLE_REDIRECT_URI'),
+    frontendUrl: required('FRONTEND_URL'),
 }

@@ -1,4 +1,5 @@
 import express from 'express';
+import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import './config/db';
 import { errorHandler } from './middleware/errorHandler';
@@ -11,7 +12,8 @@ app.use(cors());
 
 // Middleware parse JSON body
 app.use(express.json());
-
+//Midleware parse Cookie
+app.use(cookieParser());
 // Health check route - checks that the server is still alive
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
