@@ -4,11 +4,24 @@ import { authService } from '../service/auth';
 import { googleOAuthService } from '../service/googleOAuth';
 import { googleConfig } from '../config/google';
 import { AppError } from '../errors/AppError';
+import { REFRESH_COOKIE, refreshCookieOptions, clearRefreshCookieOptions } from '../config/cookies';
+import { readBearerToken } from '../middleware/auth';
 
 function getUserAgent(req: Request): string | null {
     const userAgent = req.headers['user-agent'];
     return userAgent ? userAgent.slice(0, 255) : null;
 }
+
+function readRefreshToken(req: Request): { token: string; fromCookie: boolean } | null {
+    const bodyToken = req.body?.refreshToken;
+    if (typeof bodyToken === 'string' && bodyToken) return { token: bodyToken, fromCookie: false };
+
+    const cookieToken = req.cookies?.[REFRESH_COOKIE];
+    if (typeof cookieToken === 'string' && cookieToken) return { token: cookieToken, fromCookie: true };
+
+    return null;
+}
+
 
 function safeEqual(a: string, b: string): boolean {
     const bufA = Buffer.from(a);
@@ -50,10 +63,20 @@ export const authController = {
 
     async refresh(req: Request, res: Response, next: NextFunction) {
         try {
-            const { refreshToken } = req.body;
+            const found = readRefreshToken(req);
+            if (!found) throw AppError.unauthorized('Missing refresh token');
 
-            const userAgent = getUserAgent(req);
-            const result = await authService.refresh(refreshToken, userAgent);
+            const result = await authService.refresh(found.token, getUserAgent(req));
+
+            if (found.fromCookie) {
+                res.cookie(REFRESH_COOKIE, result.refreshToken, refreshCookieOptions);
+                res.status(200).json({
+                    success: true,
+                    message: 'Token refreshed successfully',
+                    data: { accessToken: result.accessToken },
+                });
+                return;
+            }
 
             res.status(200).json({
                 success: true,
@@ -67,18 +90,16 @@ export const authController = {
 
     async logout(req: Request, res: Response, next: NextFunction) {
         try {
-            const { refreshToken } = req.body;
+            const found = readRefreshToken(req);
+            await authService.logout(found?.token ?? null, readBearerToken(req));
 
-            await authService.logout(refreshToken);
-
-            res.status(200).json({
-                success: true,
-                message: 'Logged out successfully',
-            });
+            res.clearCookie(REFRESH_COOKIE, clearRefreshCookieOptions);
+            res.status(200).json({ success: true, message: 'Logged out successfully' });
         } catch (error) {
             next(error);
         }
     },
+
 
     async me(req: Request, res: Response, next: NextFunction) {
         try {
@@ -120,13 +141,8 @@ export const authController = {
             const profile = await googleOAuthService.exchangeCode(code);
             const { refreshToken } = await authService.loginWithGoogle(profile, getUserAgent(req));
 
-            res.cookie('refresh_token', refreshToken, {
-                httpOnly: true,
-                sameSite: 'lax',
-                secure: process.env['NODE_ENV'] === 'production',
-                maxAge: 30 * 24 * 60 * 60 * 1000,
-                path: '/api/auth',
-            });
+            res.cookie(REFRESH_COOKIE, refreshToken, refreshCookieOptions);
+
             res.redirect(googleConfig.frontendUrl);
         } catch (err) {
             if (err instanceof AppError) return fail(err.message);

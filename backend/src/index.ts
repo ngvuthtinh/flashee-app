@@ -4,11 +4,12 @@ import cors from 'cors';
 import './config/db';
 import { errorHandler } from './middleware/errorHandler';
 import authRoutes from './routes/auth';
+import { googleConfig } from './config/google';
 
 const app = express();
 const PORT = process.env['PORT'] ?? 3000;
 
-app.use(cors());
+app.use(cors({ origin: googleConfig.frontendUrl, credentials: true}));
 
 // Middleware parse JSON body
 app.use(express.json());

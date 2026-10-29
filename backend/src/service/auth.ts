@@ -9,6 +9,7 @@ import { Db, withTransaction } from '../database/transaction';
 import { AppError } from '../errors/AppError';
 import { oauthAccountRepository } from '../repository/OAuthAccount';
 import { GoogleProfile } from './googleOAuth';
+import { revokedTokenRepository } from '../repository/RevokedToken';
 
 const jwtSecretEnv = process.env['JWT_SECRET'];
 if (!jwtSecretEnv) {
@@ -24,6 +25,7 @@ if (!JWT_EXPIRES_IN) {
 function generateToken(userId: string, role: string): string {
     return jwt.sign({ userId, role }, JWT_SECRET, {
         expiresIn: JWT_EXPIRES_IN as any,
+        jwtid: crypto.randomUUID(),
     });
 }
 
@@ -70,6 +72,15 @@ function isUniqueViolation(error: unknown, constraint: string): boolean {
     );
 }
 
+function decodeAccessToken(token: string): { jti: string; exp: number } | null {
+    try {
+        const d = jwt.verify(token, JWT_SECRET) as { jti?: string; exp?: number };
+        return d.jti && d.exp ? { jti: d.jti, exp: d.exp } : null;
+    } catch {
+        return null;
+    }
+}
+
 export const authService = {
     async register(data: RegisterDTO, userAgent: string | null): Promise<{ user: SafeUser; accessToken: string, refreshToken: string }> {
         const email = normalizeEmail(data.email_address);
@@ -82,24 +93,26 @@ export const authService = {
         const salt = await bcrypt.genSalt(12);
         const passwordHash = await bcrypt.hash(data.password, salt);
 
-        let newUser;
         try {
-            newUser = await userRepository.create({ ...data, email_address: email, passwordHash });
+            return await withTransaction(async (client) => {
+                const newUser = await userRepository.create(
+                    { ...data, email_address: email, passwordHash },
+                    client,
+                );
+                const refreshToken = await issueRefreshToken(newUser.id, userAgent, client);
+
+                return {
+                    user: sanitizeUser(newUser),
+                    accessToken: generateToken(newUser.id, newUser.role),
+                    refreshToken,
+                };
+            });
         } catch (error) {
             if (isUniqueViolation(error, 'users_email_address_key')) {
                 throw AppError.badRequest('Email has already been used');
             }
             throw error;
         }
-
-        const accessToken = generateToken(newUser.id, newUser.role);
-        const refreshToken = await issueRefreshToken(newUser.id, userAgent);
-
-        return {
-            user: sanitizeUser(newUser),
-            accessToken,
-            refreshToken,
-        };
     },
 
     async login(data: LoginDTO, userAgent: string | null): Promise<{ user: SafeUser; accessToken: string, refreshToken: string }> {
@@ -151,10 +164,17 @@ export const authService = {
         });
     },
 
-    async logout(refreshToken: string): Promise<void> {
-        const stored = await refreshTokenRepository.findByHash(hashToken(refreshToken));
-        if (stored && !stored.revoked_at) {
-            await refreshTokenRepository.revoke(stored.id);
+    async logout(refreshToken: string | null, accessToken: string | null): Promise<void> {
+        if (refreshToken) {
+            const stored = await refreshTokenRepository.findByHash(hashToken(refreshToken));
+            if (stored && !stored.revoked_at) {
+                await refreshTokenRepository.revoke(stored.id);
+            }
+        }
+
+        const decoded = accessToken ? decodeAccessToken(accessToken) : null;
+        if (decoded) {
+            await revokedTokenRepository.add(decoded.jti, new Date(decoded.exp * 1000));
         }
     },
 

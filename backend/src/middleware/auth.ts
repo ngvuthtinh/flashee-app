@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { UserRole } from '../model/User';
 import { AppError } from '../errors/AppError';
+import { revokedTokenRepository } from '../repository/RevokedToken';
 
 const jwtSecretEnv = process.env['JWT_SECRET'];
 if (!jwtSecretEnv) {
@@ -14,26 +15,28 @@ if (!jwtExpiresInEnv) {
     throw new Error('JWT_EXPIRES_IN is not defined in the environment variables');
 }
 
-export function protect(req: Request, _res: Response, next: NextFunction) {
-    const authHeader = req.headers.authorization;
+export async function protect(req: Request, _res: Response, next: NextFunction) {
+    const token = readBearerToken(req);
+    if (!token) throw AppError.unauthorized('Unauthorized: Please login to get access');
 
-    if (!authHeader || !authHeader.startsWith('Beý laarer ')) {
-        throw AppError.unauthorized('Unauthorized: Please login to get access');
-    }
-
-    const token = authHeader.split(' ')[1];
-
+    let decoded: { userId: string; role: UserRole; jti?: string; exp: number };
     try {
-        const decoded = jwt.verify(token!, JWT_SECRET) as {
-            userId: string;
-            role: UserRole;
-        };
-
-        req.user = decoded;
-        next();
-    } catch (err) {
+        decoded = jwt.verify(token, JWT_SECRET) as typeof decoded;
+    } catch {
         throw AppError.unauthorized('Unauthorized: Invalid or expired token');
     }
+
+    if (!decoded.jti || await revokedTokenRepository.exists(decoded.jti)) {
+        throw AppError.unauthorized('Unauthorized: Token has been revoked');
+    }
+
+    req.user = { userId: decoded.userId, role: decoded.role, jti: decoded.jti, exp: decoded.exp };
+    next();
+}
+
+export function readBearerToken(req: Request): string | null {
+    const header = req.headers.authorization;
+    return header?.startsWith('Bearer ') ? header.slice(7) : null;
 }
 
 export function restrictTo(...allowedRoles: UserRole[]) {

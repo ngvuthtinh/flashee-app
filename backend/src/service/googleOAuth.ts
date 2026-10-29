@@ -30,7 +30,7 @@ export const googleOAuthService = {
 
     async exchangeCode(code: string): Promise<GoogleProfile> {
         const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
-            method: 'Post',
+            method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
             body: new URLSearchParams({
                 code,
