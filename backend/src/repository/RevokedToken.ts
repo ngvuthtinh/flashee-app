@@ -1,15 +1,15 @@
-import pool from '../config/db';
-import { Db } from '../database/transaction';
+import redis from '../config/redis';
+
+const key = (jti: string) => `revoked:${jti}`;
 
 export const revokedTokenRepository = {
-    async add(jti: string, expiresAt: Date, db: Db = pool): Promise<void> {
-        const query = `INSERT INTO revoked_tokens (jti, expires_at) VALUES ($1, $2)
-                       ON CONFLICT (jti) DO NOTHING;`;
-        await db.query(query, [jti, expiresAt]);
+    async add(jti: string, expiresAt: Date): Promise<void> {
+        const ttlSeconds = Math.ceil((expiresAt.getTime() - Date.now()) / 1000);
+        if (ttlSeconds <= 0) return;
+        await redis.set(key(jti), '1', { EX: ttlSeconds });
     },
 
-    async exists(jti: string, db: Db = pool): Promise<boolean> {
-        const result = await db.query(`SELECT 1 FROM revoked_tokens WHERE jti = $1 LIMIT 1;`, [jti]);
-        return (result.rowCount ?? 0) > 0;
+    async exists(jti: string): Promise<boolean> {
+         return (await redis.exists(key(jti))) === 1;
     },
 };

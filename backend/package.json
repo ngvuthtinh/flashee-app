@@ -33,6 +33,7 @@
     "jsonwebtoken": "^9.0.3",
     "node-pg-migrate": "^9.0.0",
     "pg": "^8.23.0",
+    "redis": "^6.3.1",
     "uuid": "^14.0.2"
   },
   "devDependencies": {
