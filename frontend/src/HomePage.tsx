@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { api, ApiError, type ApiResult, type User } from './api'
 
 interface HomePageProps {
@@ -28,6 +28,18 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 export default function HomePage({ user, onUserChange, onLoggedOut }: HomePageProps) {
   const [last, setLast] = useState<LastResponse | null>(null)
   const [busy, setBusy] = useState(false)
+  // The OAuth callback redirects back here with ?linked=google or ?link_error=<reason>.
+  const [linkNotice] = useState<{ ok: boolean; text: string } | null>(() => {
+    const params = new URLSearchParams(window.location.search)
+    const error = params.get('link_error')
+    if (error) return { ok: false, text: `Could not link Google: ${error}` }
+    if (params.get('linked') === 'google') return { ok: true, text: 'Google account linked.' }
+    return null
+  })
+
+  useEffect(() => {
+    if (linkNotice) window.history.replaceState(null, '', window.location.pathname)
+  }, [linkNotice])
 
   // Run one API call and show whatever the server answered (success or error) in the "Last response" box.
   async function run(call: () => Promise<ApiResult<unknown>>) {
@@ -96,9 +108,23 @@ export default function HomePage({ user, onUserChange, onLoggedOut }: HomePagePr
             <Row label="Email">{user.email_address}</Row>
             <Row label="Role">{user.role}</Row>
           </div>
-          <button type="button" onClick={reloadAccount} disabled={busy} className={`${secondaryButton} mt-auto h-11 text-[15px]`}>
-            Reload account
-          </button>
+          {linkNotice && (
+            <span className={`text-sm font-medium ${linkNotice.ok ? 'text-brand' : 'text-red-600'}`}>{linkNotice.text}</span>
+          )}
+          <div className="mt-auto flex flex-col gap-2.5">
+            <button type="button" onClick={reloadAccount} disabled={busy} className={`${secondaryButton} h-11 text-[15px]`}>
+              Reload account
+            </button>
+            <button
+              type="button"
+              onClick={() => run(() => api.startGoogleLink())}
+              disabled={busy}
+              className={`${secondaryButton} h-11 text-[15px]`}
+            >
+              Connect Google
+            </button>
+            <span className="text-center font-mono text-xs text-muted">POST /api/auth/google/link</span>
+          </div>
         </section>
 
         <section className={`${card} flex-[1_1_300px]`}>

@@ -15,5 +15,11 @@ export const oauthAccountRepository = {
         const values = [uuidv7(), data.userId, data.provider, data.providerUserId];
         const result = await db.query<OAuthAccount>(query, values);
         return result.rows[0]!;
+    },
+
+    async findByUserAndProvider(userId: string, provider: string, db: Db = pool): Promise<OAuthAccount | null> {
+        const query = `SELECT * FROM oauth_accounts WHERE user_id = $1 AND provider = $2 LIMIT 1;`;
+        const result = await db.query<OAuthAccount>(query, [userId, provider]);
+        return result.rows[0] || null;
     }
 }

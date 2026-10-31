@@ -186,6 +186,40 @@ export const authService = {
         return sanitizeUser(user);
     },
 
+    signGoogleLinkToken(userId: string, state: string): string {
+        return jwt.sign({ purpose: 'google-link', userId, state }, JWT_SECRET, { expiresIn: '10m' });
+    },
+
+    verifyGoogleLinkToken(token: string, state: string): string | null {
+        try {
+            const decoded = jwt.verify(token, JWT_SECRET) as { purpose?: string; userId?: string; state?: string };
+            return decoded.purpose === 'google-link' && decoded.state === state && decoded.userId
+                ? decoded.userId
+                : null;
+        } catch {
+            return null;
+        }
+    },
+
+    async linkGoogle(userId: string, profile: GoogleProfile): Promise<void> {
+        const user = await userRepository.findById(userId);
+        if (!user) {
+            throw AppError.unauthorized('User no longer exists');
+        }
+
+        const owner = await oauthAccountRepository.findByProviderUser('google', profile.sub);
+        if (owner) {
+            if (owner.user_id === userId) return;
+            throw AppError.conflict('This Google account is already linked to another user');
+        }
+
+        if (await oauthAccountRepository.findByUserAndProvider(userId, 'google')) {
+            throw AppError.conflict('Your account is already linked to a different Google account');
+        }
+
+        await oauthAccountRepository.create({ userId, provider: 'google', providerUserId: profile.sub });
+    },
+
     async loginWithGoogle(profile: GoogleProfile, userAgent: string | null): Promise<{ refreshToken: string }> {
         if (!profile.emailVerified) {
             throw AppError.badRequest('Google email is not verified');
@@ -213,5 +247,6 @@ export const authService = {
             return { refreshToken: await issueRefreshToken(user.id, userAgent, client) };
         });
     },
+
 
 };

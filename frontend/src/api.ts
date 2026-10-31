@@ -171,6 +171,14 @@ export const api = {
     localStorage.removeItem(REFRESH_KEY) // a stale body token would take priority over the Google cookie
     window.location.assign('/api/auth/google')
   },
+
+  // Linking needs the Bearer token, which a plain navigation can't send: ask for the Google URL via
+  // fetch (this also sets the oauth_state/oauth_link cookies), then navigate to it.
+  async startGoogleLink() {
+    const result = await authed<{ url: string }>('POST', '/api/auth/google/link')
+    window.location.assign(result.body.data.url)
+    return result
+  },
 }
 
 export function describeError(err: unknown): string {
