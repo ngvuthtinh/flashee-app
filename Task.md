@@ -22,6 +22,24 @@
 - [x] Bổ sung cột **`country_code`** (chuẩn ISO 2–3 ký tự: `VN`, `US`...) vào bảng `countries`, đánh ràng buộc `NOT NULL` và `UNIQUE`.
 - [x] Loại bỏ logic query tự do theo tên quốc gia, bắt buộc client gửi `country_code` từ danh sách chọn cố định.
 
+### 13. Run PostgreSQL & Redis in Docker
+
+**Mục tiêu:** Môi trường dev giống hệt nhau giữa PC và laptop, dựng lại bằng một lệnh, không cài Postgres/Redis thẳng vào Windows.
+
+**Checklist thực hiện:**
+- [x] `backend/docker-compose.yml`: service `redis` (redis:7-alpine, AOF + volume `redis-data`) và `postgres` (postgres:18, volume `postgres-data` gắn ở `/var/lib/postgresql`, healthcheck `pg_isready`, biến `POSTGRES_USER/PASSWORD/DB` lấy từ `backend/.env` dùng chung với app, cổng `${DB_PORT}` = `5433` để không đụng Postgres native ở 5432).
+- [x] Dựng DB trống trong Docker: `npm run db:migrate` (16 migration chạy sạch từ đầu) + `npm run db:seed`; dữ liệu dev cũ ở Postgres native được bỏ (không chuyển sang). Backend kết nối Docker qua `DB_PORT=5433`, `.env.example` đã cập nhật.
+- [ ] Cập nhật `CLAUDE.md` mục "Local DB" (hiện vẫn ghi Postgres native, không Docker).
+- [ ] Laptop: `git pull`, sửa `backend/.env` (`DB_PORT=5433`, user/password/db khớp compose), `docker compose up -d`, `npm run db:migrate`, `npm run db:seed`.
+- [ ] Viết phần "Getting started" cho `README.md`: `copy .env.example .env` rồi điền giá trị riêng (cả `JWT_SECRET` và Google OAuth), `docker compose up -d`, migrate, seed, `npm run dev`.
+- [ ] (Tuỳ chọn) Tắt service Postgres native `postgresql-x64-18` (đặt Startup type = Manual) khi mọi thứ ổn; nó hiện chỉ giữ cổng 5432 và chứa dữ liệu dev cũ.
+
+**Ghi nhớ:**
+- `POSTGRES_USER/PASSWORD/DB` chỉ áp dụng **lần khởi tạo volume đầu tiên**: đổi `.env` sau đó không đổi tài khoản trong DB. Muốn đổi dùng `ALTER USER ... PASSWORD ...` hoặc `docker compose down -v` (mất dữ liệu). Tài khoản và mật khẩu là thật (Postgres vẫn kiểm tra), chỉ khác là mình tự chọn lúc tạo container.
+- Dữ liệu nằm trong volume trên từng máy, **không** nằm trong git: người clone về tự dựng bằng migrate + seed (dữ liệu bạn tự tạo lúc dev không đi theo).
+- Terminal VS Code mở trước lúc cài Docker không nhận lệnh `docker`: dùng PowerShell ngoài hoặc mở lại VS Code. Chạy `docker compose` phải đứng trong `backend`.
+- Công cụ xem trực quan: RedisInsight / extension Redis cho VS Code (kết nối `127.0.0.1:6379`, không user/mật khẩu), DBeaver hoặc dbdiagram.io (dán `dbdiagram.md`) cho Postgres.
+
 ## EPIC 2: AUTHENTICATION & USERS
 
 ### 3. Refactor Auth & Token Blacklist
@@ -54,8 +72,9 @@ Thiết kế: JWT chứa `sid`; session là một dòng trong Postgres (nguồn 
 - [x] `/logout` thu hồi session; reuse detection thu hồi đúng session bị lộ (không phải mọi session của user); `POST /api/auth/logout-all` (có `protect`) thu hồi mọi session của chính người gọi.
 - [x] Chịu lỗi Redis: `disableOfflineQueue: true` để lệnh lỗi nhanh thay vì treo; lỗi đọc cache = miss (hỏi Postgres), lỗi ghi/xoá cache chỉ log. **Không bắt lỗi Postgres** (nuốt lỗi trong transaction làm `COMMIT` thành `ROLLBACK` âm thầm).
 - [x] Dọn blacklist cũ: bỏ `jti`/`jwtid`, `RevokedToken.ts`, kiểm tra blacklist trong `protect`; migration `drop-revoked-tokens`.
-- [ ] Chạy `npm run db:migrate` trên mọi máy (PC và laptop): `drop-revoked-tokens` và `create-sessions`.
-- [ ] Test thật: login → `/me` 200 (`GET session:<sid>` trong Redis, `TTL` ~300); logout → `/me` bằng token cũ 401 ngay; hai session rồi `/logout-all` → cả hai 401; dùng lại refresh token cũ → session bị thu hồi; `docker compose stop` → `/me` vẫn 200 qua Postgres, log `Session cache read failed`; `UPDATE sessions SET revoked_at = now()` trực tiếp thì `/me` vẫn 200 cho đến khi `DEL session:<sid>` hoặc hết TTL.
+- [x] Migration `drop-revoked-tokens` và `create-sessions` đã chạy trên PC (DB Docker mới, 16 migration, không còn bảng `revoked_tokens`). Laptop: xem Task 13.
+- [x] Đã xác nhận thật (PC): đăng ký tạo 1 session + refresh token cùng `session_id`; `/refresh` bằng cookie xoay refresh token nhưng giữ nguyên session; access token mang `sid` (hạn 900s, không còn `jti`); key `session:<sid>` xuất hiện trong Redis (RedisInsight) với giá trị là `userId` và TTL ~300.
+- [ ] Còn phải test thật: logout → `/me` bằng token cũ 401 ngay; hai session rồi `/logout-all` → cả hai 401; dùng lại refresh token cũ → session bị thu hồi; `docker compose stop` (Redis) → `/me` vẫn 200 qua Postgres, log `Session cache read failed`; `UPDATE sessions SET revoked_at = now()` trực tiếp thì `/me` vẫn 200 cho đến khi `DEL session:<sid>` hoặc hết TTL.
 - [ ] **Admin thu hồi session (ban user):** chỉ dành cho admin, không làm nút "Log out all devices" cho user thường ở frontend. Cần route cho admin (`protect` + `restrictTo('ADMIN')`) nhận `userId` đích rồi gọi `sessionService.revokeAllByUser`, kèm cờ khoá/ban user (chặn login và refresh). Hiện `POST /logout-all` chỉ thu hồi session của chính người gọi.
 - Ghi nhớ: `DEL` cache lỗi lúc thu hồi thì cache cũ còn "hợp lệ" tối đa 300s (TTL là lưới an toàn); cache-aside có race giữa lúc nạp lại và lúc thu hồi (xử lý ở Stage 2); sau khi Redis restart nhiều request cùng miss dồn xuống Postgres (thundering herd, Stage 3); session chưa có hạn tuyệt đối riêng (hiện bị giới hạn bởi refresh token 30 ngày); `sessions` và `refresh_tokens` chỉ tăng, cần job dọn.
 
@@ -106,6 +125,7 @@ Thiết kế: JWT chứa `sid`; session là một dòng trong Postgres (nguồn 
 - [x] `register` chạy trong `withTransaction` (tạo user + refresh token).
 - [x] Sửa `method: 'Post'` → `'POST'` trong `googleOAuth.ts`.
 - [x] Frontend: trang `LoginPage`, `HomePage`, `api.ts`.
+- [x] `/login` và `/register` đặt refresh token vào cookie `httpOnly` (cùng `refreshCookieOptions` với Google) và **không** trả nó trong JSON; frontend bỏ `localStorage`, `/refresh` và `/logout` không gửi body (cookie tự đi), dọn khoá cũ `flashee.refreshToken` còn sót. Đã kiểm tra: đăng ký xong F5 vẫn đăng nhập, response không có `refreshToken`.
 - [x] Kết nối Google vào tài khoản đang đăng nhập: `POST /api/auth/google/link` (`protect`) đặt cookie `oauth_state` + `oauth_link` (JWT `purpose`/`userId`/`state`, 10 phút) và trả URL Google; callback verify `oauth_link` rồi gọi `authService.linkGoogle` (idempotent; 409 nếu Google đã gắn user khác hoặc user đã có Google khác). Thêm `AppError.conflict`, `findByUserAndProvider`, cookie OAuth trong `config/cookies.ts`, nút "Connect Google" ở `HomePage`.
 - [x] Redis: `backend/docker-compose.yml` (redis:7-alpine, AOF + volume), `config/redis.ts` (kết nối trước `app.listen`, `disableOfflineQueue`), dùng làm cache session (xem Task 3).
 
@@ -113,13 +133,14 @@ Thiết kế: JWT chứa `sid`; session là một dòng trong Postgres (nguồn 
 - [ ] Google Cloud Console: redirect URI khớp từng ký tự `http://localhost:3000/api/auth/google/callback`; thêm email vào *Test users* nếu consent screen đang ở chế độ Testing.
 - [ ] Test thật trên trình duyệt: `/api/auth/google` → đăng nhập Google → có cookie `refresh_token` → `/refresh` ra access token; email đã đăng ký mật khẩu bị từ chối; đăng nhập Google lần hai vào thẳng; user Google gọi `/login` bằng mật khẩu bị 401.
 - [ ] Test thật luồng kết nối: đăng nhập bằng mật khẩu → "Connect Google" → có dòng trong `oauth_accounts` → đăng xuất → "Continue with Google" vào đúng tài khoản cũ; kết nối lần hai không lỗi; Google đã gắn user khác bị `?link_error=`.
-- [ ] Test thật hướng session (xem checklist ở Task 3) và migration `drop-revoked-tokens` / `create-sessions` trên mọi máy.
+- [ ] Test thật hướng session (xem checklist ở Task 3) và chạy migration `drop-revoked-tokens` / `create-sessions` trên laptop (Task 13).
 - [x] Cập nhật `dbdiagram.md`: thêm `sessions`, `refresh_tokens.session_id`, `created_at` cho 8 bảng thiếu và `DEFAULT now()` cho các bảng đã chuẩn hoá; không có `revoked_tokens` vì đã bỏ bảng này.
 - [ ] Viết ADR đầy đủ cho các quyết định ở trên (mô hình `oauth_accounts`, từ chối gộp email, refresh token qua cookie, link Google bằng cookie `oauth_link`, session-in-JWT với Postgres làm nguồn sự thật + Redis cache-aside thay cho blacklist `jti`).
 
 **Ghi nhớ / để sau:**
 - Hai callback lần đầu của cùng một người chạy đồng thời có thể cùng qua bước kiểm tra rồi một cái bị UNIQUE từ chối (500) → xử lý bằng bắt `23505` hoặc locking ở Stage 2.
-- `/login` và `/register` vẫn trả refresh token trong JSON body; chuyển sang cookie để hai luồng hội tụ hoàn toàn (Stage 4: cookie session).
+- `readRefreshToken` vẫn nhận refresh token từ **body** (cho client không phải trình duyệt như Postman/mobile); có thể bỏ nhánh này để chỉ dùng cookie. Access token vẫn gửi bằng header `Authorization` (Stage 4: cân nhắc cookie-based session).
+- Bảo mật trình duyệt: refresh token không còn ở `localStorage` (giảm rủi ro XSS đánh cắp token 30 ngày); CSRF được che bởi header Bearer (access token) + cookie `SameSite=Lax` (refresh/logout). Chưa có CSP và `helmet`. Khi làm review/bình luận phải tránh render HTML thô (stored XSS). Khi chuyển sang cookie-based session phải thêm bảo vệ CSRF (CSRF token hoặc kiểm tra `Origin`).
 - Lưu tên/avatar Google vào `user_profiles` (Task 4); hiện chỉ dùng `name` cho `users.user_name`.
 - Dọn định kỳ `refresh_tokens` và `sessions` (đã hết hạn/đã revoke): hai bảng chỉ tăng, chưa có job dọn.
 - Chưa có "Unlink Google": khi làm phải chặn user chỉ có Google (không có mật khẩu) tự khoá mình ra ngoài.
