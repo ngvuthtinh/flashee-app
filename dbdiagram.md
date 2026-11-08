@@ -8,7 +8,7 @@ Table users {
   phone_number varchar(20) // nullable: Google-only users have no phone number
   password varchar // nullable: Google-only users have no password (login must reject NULL)
   role varchar [not null]
-  created_at timestamp [not null]
+  created_at timestamp [not null, default: `now()`]
   updated_at timestamp [default: `now()`]
 
   // CHECK (email_address = lower(email_address)): emails are always stored in lowercase
@@ -25,18 +25,33 @@ Table user_profiles {
   updated_at timestamp [default: `now()`]
 }
 
+Table sessions {
+  id uuid [primary key] // the `sid` claim inside the access JWT
+  user_id uuid [not null, ref: > users.id] // ON DELETE CASCADE
+  user_agent varchar(255)
+  revoked_at timestamp // NULL = active; set when the session is revoked (logout, logout-all, password change)
+  created_at timestamp [default: `now()`]
+  updated_at timestamp [default: `now()`]
+
+  indexes {
+    user_id // List / revoke all sessions of a user
+  }
+}
+
 Table refresh_tokens {
   id uuid [primary key]
   user_id uuid [not null, ref: > users.id] // ON DELETE CASCADE
+  session_id uuid [not null, ref: > sessions.id] // ON DELETE CASCADE; rotation keeps the same session_id
   token_hash varchar [unique, not null] // SHA-256 of the token; the raw token is never stored
   user_agent varchar(255)
   expires_at timestamp [not null]
-  revoked_at timestamp // set when rotated/logged out; reuse of a revoked token revokes all of the user's tokens
+  revoked_at timestamp // set when rotated/logged out; reuse of a revoked token revokes the whole session
   created_at timestamp [default: `now()`]
   updated_at timestamp [default: `now()`]
 
   indexes {
     user_id // Revoke all tokens of a user
+    session_id // Tokens of one session
   }
 }
 
@@ -58,6 +73,7 @@ Table countries {
   id uuid [primary key]
   country_code varchar(2) [unique, not null]
   country_name varchar
+  created_at timestamp [default: `now()`]
   updated_at timestamp [default: `now()`]
 }
 
@@ -70,7 +86,7 @@ Table addresses {
   city varchar
   longitude decimal(9,6)
   latitude decimal(9,6)
-  created_at timestamp
+  created_at timestamp [default: `now()`]
   country_id uuid [not null, ref: > countries.id]
   updated_at timestamp [default: `now()`]
 }
@@ -80,6 +96,7 @@ Table user_address {
   user_id uuid [not null, ref: > users.id]
   address_id uuid [not null, ref: > addresses.id]
   is_default boolean [not null, default: false]
+  created_at timestamp [default: `now()`]
   updated_at timestamp [default: `now()`]
 
   indexes {
@@ -91,8 +108,8 @@ Table products {
   id uuid [primary key]
   name varchar [not null]
   description varchar
-  created_at timestamp
-  updated_at timestamp
+  created_at timestamp [default: `now()`]
+  updated_at timestamp [default: `now()`]
 }
 
 Table product_images {
@@ -100,6 +117,7 @@ Table product_images {
   product_id uuid [not null, ref: > products.id]
   image_url text
   is_thumbnail boolean
+  created_at timestamp [default: `now()`]
   updated_at timestamp [default: `now()`]
 
   indexes {
@@ -111,6 +129,7 @@ Table categories {
   id uuid [primary key]
   name varchar
   description varchar
+  created_at timestamp [default: `now()`]
   updated_at timestamp [default: `now()`]
 }
 
@@ -118,6 +137,7 @@ Table product_category {
   id uuid [primary key]
   product_id uuid [not null, ref: > products.id]
   category_id uuid [not null, ref: > categories.id]
+  created_at timestamp [default: `now()`]
   updated_at timestamp [default: `now()`]
 
   indexes {
@@ -133,6 +153,7 @@ Table product_variants {
   stock_quantity int [not null, default: 0]
   color varchar
   size varchar
+  created_at timestamp [default: `now()`]
   updated_at timestamp [default: `now()`]
 
   indexes {
@@ -151,8 +172,8 @@ Table orders {
   discount_amount decimal(12,2) [not null, default: 0]
   total_amount decimal(12,2) [not null]
   shipping_address text [not null]
-  created_at timestamp
-  updated_at timestamp
+  created_at timestamp [default: `now()`]
+  updated_at timestamp [default: `now()`]
 
   indexes {
     (user_id, created_at) // Optimizes the API "view my order history" — also serves queries filtering by user_id alone (leftmost prefix), so no separate single-column index is needed
@@ -163,6 +184,7 @@ Table orders {
 Table carts {
   id uuid [primary key]
   user_id uuid [unique, not null, ref: - users.id]
+  created_at timestamp [default: `now()`]
   updated_at timestamp [default: `now()`]
 }
 
@@ -171,7 +193,7 @@ Table cart_items {
   product_variant_id uuid [not null, ref: > product_variants.id]
   cart_id uuid [not null, ref: > carts.id]
   quantity int [not null, default: 1]
-  created_at timestamp
+  created_at timestamp [default: `now()`]
   updated_at timestamp [default: `now()`]
 
   indexes {
@@ -186,6 +208,7 @@ Table order_items {
   quantity int [not null]
   unit_price decimal(12,2) [not null]
   subtotal decimal(12,2) [not null]
+  created_at timestamp [default: `now()`]
   updated_at timestamp [default: `now()`]
 
   indexes {

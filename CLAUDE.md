@@ -36,14 +36,14 @@ Staged roughly foundation → the hard concurrency core → scaling it for real 
 **Stage 3 — Making the checkout survive real traffic**
 - ⬜ Idempotency (retried requests — network blips, double-clicks — must not double-charge or double-decrement stock)
 - ⬜ Rate limiting & throttling (protect login and the flash-sale checkout endpoint from bots/hammering)
-- ⬜ Caching (e.g. Redis) for hot reads (product/stock lookups) without hammering the DB every request
+- ⬜ Caching (e.g. Redis) for hot reads (product/stock lookups) without hammering the DB every request — Redis is already running and used as a cache-aside layer for auth sessions (`session:<sid>`); product/stock caching is still open
 - ⬜ Message queues / async processing (decouple "order accepted" from slower downstream work like payment confirmation, notifications)
 
 **Stage 4 — Production maturity**
 - ⬜ Testing strategy (unit vs. integration tests — especially ones that can actually catch race conditions, since those are the bugs most likely to hide until production)
 - ⬜ Observability (structured logging, metrics; there's already a bare `/health` route — grow it into real health/readiness checks)
-- ⬜ Auth hardening — refresh tokens done (rotation + reuse detection, `refresh_tokens` table, `POST /auth/refresh`). Still open: logout/explicit revoke endpoint, and access-token revocation/blacklisting (an access JWT still can't be invalidated before expiry)
-- ⬜ Session-based auth as a further extension after refresh tokens/blacklist land — user wants to explore JWT-in-session vs. session-in-JWT approaches, eventually moving to cookie-based sessions instead of the current header-based JWT
+- ✅ Auth hardening — refresh tokens (rotation + reuse detection), logout, and immediate access-token revocation via server-side sessions (`sessions` table = source of truth, Redis cache-aside, `sid` claim in the JWT; revoking a session kills all its access and refresh tokens). Still open: an admin-only endpoint to revoke all sessions of another user (ban user) — the "log out all devices" idea is for admins, not a frontend button for customers
+- ⬜ Cookie-based sessions — the current design is session-in-JWT (JWT carries `sid`, header-based); the user wants to eventually move to cookie-based sessions and compare with JWT-in-session
 
 (This list grows as the project surfaces new needs — it isn't fixed.)
 
@@ -54,7 +54,8 @@ When implementing a feature that touches one of these concepts, treat it as a te
 - **Backend**: Node.js + Express + TypeScript + PostgreSQL (`pg`, raw SQL — no ORM). Layered as Route → Controller → Service → Repository.
 - **Migrations**: `node-pg-migrate`, run via `npm run db:migrate` (backend). Migration files live in `backend/src/database/migrations/`. `dir` in `migrate.ts` is resolved via `__dirname`, not cwd.
 - **Frontend**: React 19 + Vite + TypeScript. Currently just scaffold — minimal investment expected here.
-- **Local DB**: PostgreSQL runs as a native Windows service (`postgresql-x64-18`) at `T:\Program\PostgreSQL`, not Docker. `psql` is not on PATH by default.
+- **Local DB**: PostgreSQL runs as a native Windows service (`postgresql-x64-18`) at `T:\Program\PostgreSQL`, not Docker. `psql` is not on PATH by default. Moving Postgres into Docker is a possible later step (port 5432 would conflict with the native service).
+- **Redis**: runs in Docker via `backend/docker-compose.yml` (`docker compose up -d` from `backend`; Docker Desktop must be running). Client is `redis` (node-redis) in `backend/src/config/redis.ts`, connected before `app.listen`, with `disableOfflineQueue: true`. Used for the session cache (`session:<sid>` → `userId`, TTL 300s); Postgres stays the source of truth.
 
 ## Collaboration notes
 

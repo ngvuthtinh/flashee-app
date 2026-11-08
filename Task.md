@@ -31,17 +31,33 @@
 **Checklist thực hiện:**
 - [x] Thống nhất thuật toán băm mật khẩu chuẩn (Argon2id hoặc Bcrypt với cost factor ≥ 12).
 - [x] Tạo bảng `refresh_tokens`: Lưu refresh token đã cấp, gắn với `user_id`, thông tin thiết bị/User-Agent, thời gian hết hạn (`expires_at`).
-- [x] Xây dựng cơ chế `revoked_tokens` / `blacklist`: access token có `jti` (`jwtid: crypto.randomUUID()`), `protect` từ chối token đã thu hồi, `logout` thêm `jti` vào blacklist. Blacklist lưu ở **Redis** (key `revoked:<jti>`, `SET ... EX <giây còn lại của token>`) nên tự hết hạn, không cần job dọn. (Chưa có: thu hồi khi đổi mật khẩu vì chưa có chức năng đổi mật khẩu.)
+- [x] Cơ chế thu hồi access token: làm blacklist `jti` trước (Postgres, rồi chuyển sang Redis `revoked:<jti>` + TTL), sau đó **thay bằng session** (xem phần "Session-based revocation" bên dưới) vì blacklist không thu hồi hàng loạt được và mất dữ liệu Redis thì token sống lại. Đã bỏ `jti`/`jwtid`, `revokedTokenRepository` và bảng `revoked_tokens`.
 
 **Refresh token rotation (xong):**
 - [x] A. Tạo `database/transaction.ts` với `withTransaction` (BEGIN/COMMIT/ROLLBACK + `client.release()`), export kiểu `Db = Pool | PoolClient`.
 - [x] B. `refreshTokenRepository` nhận thêm tham số `db: Db = pool`; thêm `revokeAllByUserId`.
-- [x] C. `authService.refresh`: không thấy → 401; đã revoke (reuse) → thu hồi toàn bộ token của user + 401; hết hạn → 401; hợp lệ → revoke cũ + phát mới trong 1 transaction.
+- [x] C. `authService.refresh`: không thấy → 401; đã revoke (reuse) → thu hồi **session** của token đó (`sessionService.revoke`) + 401; hết hạn → 401; session đã bị thu hồi → 401; hợp lệ → revoke cũ + phát mới (cùng `session_id`) trong 1 transaction.
 - [x] D. Controller + route `POST /api/auth/refresh`.
-- [x] E. `POST /api/auth/logout`: revoke refresh token hiện tại.
+- [x] E. `POST /api/auth/logout`: thu hồi session của refresh token (hoặc `sid` của access token nếu không có refresh token), nên access token cũ chết ngay.
 - [x] Test Postman: R1 → R2 OK; dùng lại R1 → 401 và R2 cũng bị revoke.
 - [x] Rút `JWT_EXPIRES_IN` xuống ~15m sau khi `/refresh` chạy được.
 - Ghi nhớ: 2 request refresh cùng 1 token đến cùng lúc có thể cùng qua bước kiểm tra (race) → xử lý bằng `SELECT ... FOR UPDATE` ở Stage 2.
+
+**Session-based revocation (session-in-JWT, thu hồi access token ngay):**
+
+Thiết kế: JWT chứa `sid`; session là một dòng trong Postgres (nguồn sự thật), Redis là cache-aside (`session:<sid>` → `userId`, TTL 300s). Allow-list: "không có trong cache" nghĩa là *chưa biết* nên hỏi Postgres, nhờ đó Redis mất dữ liệu không làm ai bị đăng xuất hay token đã thu hồi sống lại. Một user có nhiều session, một session có nhiều refresh token (mỗi lần rotation thêm một dòng, cùng `session_id`).
+- [x] Migration `create-sessions`: bảng `sessions (id = sid, user_id, user_agent, revoked_at, created_at, updated_at)` + trigger + index `user_id`; thêm `refresh_tokens.session_id` NOT NULL (FK `ON DELETE CASCADE`, đã xoá refresh token cũ khi migrate, chỉ ổn ở DB dev).
+- [x] Model `Session`; `sessionRepository` (`create`, `findActiveById`, `revoke`, `revokeAllByUserId` trả danh sách `sid`); `sessionCacheRepository` (`get`/`set`/`delete`); `refreshTokenRepository.create` nhận `sessionId`, thêm `revokeAllBySessionId`.
+- [x] `startSession` trong `authService`: login/register/Google tạo session + refresh token **trong cùng một transaction**; `generateToken(userId, role, sessionId)` đưa `sid` vào JWT; `/refresh` giữ nguyên `session_id` và kiểm tra session còn hiệu lực (đọc thẳng Postgres, không qua cache vì hiếm và là cổng cấp token mới).
+- [x] `protect` gọi `sessionService.isActive(sid, userId)`: Redis hit thì so `userId`; miss thì hỏi Postgres rồi nạp lại cache; token không có `sid` bị từ chối. `req.user` có `sid` (`types/express.d.ts`).
+- [x] `sessionService.revoke(sessionId)` / `revokeAllByUser(userId)`: cập nhật Postgres trong transaction, **sau khi commit** mới `DEL` cache Redis.
+- [x] `/logout` thu hồi session; reuse detection thu hồi đúng session bị lộ (không phải mọi session của user); `POST /api/auth/logout-all` (có `protect`) thu hồi mọi session của chính người gọi.
+- [x] Chịu lỗi Redis: `disableOfflineQueue: true` để lệnh lỗi nhanh thay vì treo; lỗi đọc cache = miss (hỏi Postgres), lỗi ghi/xoá cache chỉ log. **Không bắt lỗi Postgres** (nuốt lỗi trong transaction làm `COMMIT` thành `ROLLBACK` âm thầm).
+- [x] Dọn blacklist cũ: bỏ `jti`/`jwtid`, `RevokedToken.ts`, kiểm tra blacklist trong `protect`; migration `drop-revoked-tokens`.
+- [ ] Chạy `npm run db:migrate` trên mọi máy (PC và laptop): `drop-revoked-tokens` và `create-sessions`.
+- [ ] Test thật: login → `/me` 200 (`GET session:<sid>` trong Redis, `TTL` ~300); logout → `/me` bằng token cũ 401 ngay; hai session rồi `/logout-all` → cả hai 401; dùng lại refresh token cũ → session bị thu hồi; `docker compose stop` → `/me` vẫn 200 qua Postgres, log `Session cache read failed`; `UPDATE sessions SET revoked_at = now()` trực tiếp thì `/me` vẫn 200 cho đến khi `DEL session:<sid>` hoặc hết TTL.
+- [ ] **Admin thu hồi session (ban user):** chỉ dành cho admin, không làm nút "Log out all devices" cho user thường ở frontend. Cần route cho admin (`protect` + `restrictTo('ADMIN')`) nhận `userId` đích rồi gọi `sessionService.revokeAllByUser`, kèm cờ khoá/ban user (chặn login và refresh). Hiện `POST /logout-all` chỉ thu hồi session của chính người gọi.
+- Ghi nhớ: `DEL` cache lỗi lúc thu hồi thì cache cũ còn "hợp lệ" tối đa 300s (TTL là lưới an toàn); cache-aside có race giữa lúc nạp lại và lúc thu hồi (xử lý ở Stage 2); sau khi Redis restart nhiều request cùng miss dồn xuống Postgres (thundering herd, Stage 3); session chưa có hạn tuyệt đối riêng (hiện bị giới hạn bởi refresh token 30 ngày); `sessions` và `refresh_tokens` chỉ tăng, cần job dọn.
 
 ### 4. User Profile & Ranking System
 
@@ -63,7 +79,7 @@
 - [x] Tạo class `AppError` (statusCode + message) thay cho `const error: any = new Error(...)` lặp lại; `errorHandler` trả lỗi theo một shape thống nhất.
 - [x] Middleware validate đầu vào (email, password, phone_number...) trả 400 kèm lỗi theo từng field; quyết định tự viết hay dùng `zod`. (tự viết: `validation/validate.ts` + `middleware/validateBody.ts`)
 - [x] `register`: bắt lỗi UNIQUE (`23505`) khi 2 request cùng email → trả 400 thay vì 500 (race check-then-act; UNIQUE trong DB là trọng tài cuối).
-- [x] `protect` chặn được token đã thu hồi (blacklist `jti`, xem Task 3). Tra bằng Redis (`EXISTS revoked:<jti>`) thay cho query Postgres mỗi request.
+- [x] `protect` chặn được token đã thu hồi bằng cách kiểm tra session (`sid`, xem Task 3); Redis cache-aside giúp không phải query Postgres ở mỗi request.
 
 ### 12. Google OAuth 2.0 Login
 
@@ -84,34 +100,33 @@
 - [x] `oauthAccountRepository`, `userRepository.createOAuthUser`, `cookie-parser`, `GET /api/auth/me`.
 - [x] Migration chuẩn hoá `created_at`/`updated_at` (DEFAULT `now()`, thêm `created_at` cho 8 bảng còn thiếu).
 - [x] `/refresh` và `/logout` nhận refresh token từ **body hoặc cookie** `refresh_token`; token từ cookie thì `/refresh` đặt lại cookie (rotation) và chỉ trả `accessToken` trong body.
-- [x] `/logout` xoá cookie `refresh_token` (idempotent: không có token vẫn trả 200) và thu hồi cả access token (`jti`).
+- [x] `/logout` xoá cookie `refresh_token` (idempotent: không có token vẫn trả 200) và thu hồi session (access token cũ chết ngay).
 - [x] Gom tuỳ chọn cookie vào `config/cookies.ts` (`refreshCookieOptions`, `clearRefreshCookieOptions`) dùng chung cho đặt/xoá cookie.
 - [x] CORS: `cors({ origin: FRONTEND_URL, credentials: true })`.
 - [x] `register` chạy trong `withTransaction` (tạo user + refresh token).
 - [x] Sửa `method: 'Post'` → `'POST'` trong `googleOAuth.ts`.
 - [x] Frontend: trang `LoginPage`, `HomePage`, `api.ts`.
 - [x] Kết nối Google vào tài khoản đang đăng nhập: `POST /api/auth/google/link` (`protect`) đặt cookie `oauth_state` + `oauth_link` (JWT `purpose`/`userId`/`state`, 10 phút) và trả URL Google; callback verify `oauth_link` rồi gọi `authService.linkGoogle` (idempotent; 409 nếu Google đã gắn user khác hoặc user đã có Google khác). Thêm `AppError.conflict`, `findByUserAndProvider`, cookie OAuth trong `config/cookies.ts`, nút "Connect Google" ở `HomePage`.
-- [x] Redis: `docker-compose.yml` (redis:7-alpine, AOF + volume), `config/redis.ts`, kết nối trước `app.listen`, `revokedTokenRepository` chuyển sang Redis với TTL.
+- [x] Redis: `backend/docker-compose.yml` (redis:7-alpine, AOF + volume), `config/redis.ts` (kết nối trước `app.listen`, `disableOfflineQueue`), dùng làm cache session (xem Task 3).
 
 **Còn lại để đóng Task 12:**
 - [ ] Google Cloud Console: redirect URI khớp từng ký tự `http://localhost:3000/api/auth/google/callback`; thêm email vào *Test users* nếu consent screen đang ở chế độ Testing.
 - [ ] Test thật trên trình duyệt: `/api/auth/google` → đăng nhập Google → có cookie `refresh_token` → `/refresh` ra access token; email đã đăng ký mật khẩu bị từ chối; đăng nhập Google lần hai vào thẳng; user Google gọi `/login` bằng mật khẩu bị 401.
 - [ ] Test thật luồng kết nối: đăng nhập bằng mật khẩu → "Connect Google" → có dòng trong `oauth_accounts` → đăng xuất → "Continue with Google" vào đúng tài khoản cũ; kết nối lần hai không lỗi; Google đã gắn user khác bị `?link_error=`.
-- [ ] Test Redis blacklist: login → logout → `/me` bằng token cũ phải 401; `KEYS revoked:*` và `TTL revoked:<jti>` (tối đa ~900s).
-- [ ] Migration bỏ bảng `revoked_tokens` (không còn dùng) và xoá phần Postgres thừa nếu có.
-- [ ] Cập nhật `dbdiagram.md`: đã có `oauth_accounts` và `refresh_tokens`; còn thiếu `created_at` cho 8 bảng (`carts`, `categories`, `countries`, `order_items`, `product_category`, `product_images`, `product_variants`, `user_address`) và nullable của `users.password`/`phone_number`. (Không thêm `revoked_tokens` vì sẽ bỏ bảng này.)
-- [ ] Viết ADR đầy đủ cho các quyết định ở trên (mô hình `oauth_accounts`, từ chối gộp email, refresh token qua cookie, blacklist `jti` ở Redis, link Google bằng cookie `oauth_link`).
+- [ ] Test thật hướng session (xem checklist ở Task 3) và migration `drop-revoked-tokens` / `create-sessions` trên mọi máy.
+- [x] Cập nhật `dbdiagram.md`: thêm `sessions`, `refresh_tokens.session_id`, `created_at` cho 8 bảng thiếu và `DEFAULT now()` cho các bảng đã chuẩn hoá; không có `revoked_tokens` vì đã bỏ bảng này.
+- [ ] Viết ADR đầy đủ cho các quyết định ở trên (mô hình `oauth_accounts`, từ chối gộp email, refresh token qua cookie, link Google bằng cookie `oauth_link`, session-in-JWT với Postgres làm nguồn sự thật + Redis cache-aside thay cho blacklist `jti`).
 
 **Ghi nhớ / để sau:**
 - Hai callback lần đầu của cùng một người chạy đồng thời có thể cùng qua bước kiểm tra rồi một cái bị UNIQUE từ chối (500) → xử lý bằng bắt `23505` hoặc locking ở Stage 2.
 - `/login` và `/register` vẫn trả refresh token trong JSON body; chuyển sang cookie để hai luồng hội tụ hoàn toàn (Stage 4: cookie session).
 - Lưu tên/avatar Google vào `user_profiles` (Task 4); hiện chỉ dùng `name` cho `users.user_name`.
-- Dọn định kỳ `refresh_tokens` (đã hết hạn/đã revoke): bảng chỉ tăng, chưa có job dọn. Blacklist `jti` trên Redis đã tự hết hạn nhờ TTL.
+- Dọn định kỳ `refresh_tokens` và `sessions` (đã hết hạn/đã revoke): hai bảng chỉ tăng, chưa có job dọn.
 - Chưa có "Unlink Google": khi làm phải chặn user chỉ có Google (không có mật khẩu) tự khoá mình ra ngoài.
 - Hai request kết nối Google cùng lúc có thể cùng qua bước kiểm tra rồi một cái bị UNIQUE từ chối (500) → bắt `23505` hoặc locking ở Stage 2.
-- Redis chết giữa lúc server chạy: mặc định client xếp hàng lệnh nên `protect` có thể treo chờ thay vì lỗi ngay; cân nhắc `disableOfflineQueue` (fail closed) và thử `docker compose stop` để quan sát. Redis mất dữ liệu khi restart sẽ làm token đã logout "sống lại" tối đa ~15 phút (AOF giảm rủi ro này).
+- Redis chết giữa lúc server chạy đã được xử lý: `disableOfflineQueue: true` + lỗi cache coi như miss, `protect` vẫn chạy qua Postgres (chậm hơn). Chưa thử thật bằng `docker compose stop`.
 - Lỗi của luồng Google đang đưa nguyên `err.message` lên query string (`?link_error=`, `?error=`); nên đổi sang mã lỗi.
-- Đổi mật khẩu/quên mật khẩu/email verification hoãn lại (đổi mật khẩu sẽ cần thu hồi mọi refresh token + blacklist access token hiện tại). Khi có email verification mới cân nhắc lại chính sách gộp tài khoản.
+- Đổi mật khẩu/quên mật khẩu/email verification hoãn lại (đổi mật khẩu sẽ cần `sessionService.revokeAllByUser` để thu hồi mọi session và refresh token). Khi có email verification mới cân nhắc lại chính sách gộp tài khoản.
 
 ## EPIC 3: CATALOG & INVENTORY
 
