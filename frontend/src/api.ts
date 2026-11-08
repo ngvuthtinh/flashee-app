@@ -2,7 +2,13 @@
 // in dev the Vite proxy forwards them to the backend, so the browser sees ONE origin
 // (no CORS, and the httpOnly refresh cookie travels automatically).
 
-const REFRESH_KEY = 'flashee.refreshToken'
+// Older versions kept the refresh token in localStorage, where any script on the page (e.g. via XSS) can read it.
+// It now lives only in the httpOnly cookie, so drop any copy left behind in this browser.
+try {
+  localStorage.removeItem('flashee.refreshToken')
+} catch {
+  // storage unavailable (private mode, blocked): nothing to clean up
+}
 
 export type UserRole = 'CUSTOMER' | 'ADMIN'
 
@@ -39,16 +45,14 @@ export interface ApiResult<T> {
   body: Envelope<T>
 }
 
+// The refresh token never appears in a response body: the backend sets it as an httpOnly cookie.
 interface AuthData {
   user: User
   accessToken: string
-  refreshToken: string
 }
 
-// With a cookie-based refresh the backend returns only the access token.
 interface RefreshData {
   accessToken: string
-  refreshToken?: string
 }
 
 export class ApiError extends Error {
@@ -68,14 +72,12 @@ export class ApiError extends Error {
 // The access token lives in memory only: a page reload loses it and we re-obtain it via /refresh.
 let accessToken: string | null = null
 
-function saveSession(data: { accessToken: string; refreshToken?: string }) {
+function saveSession(data: { accessToken: string }) {
   accessToken = data.accessToken
-  if (data.refreshToken) localStorage.setItem(REFRESH_KEY, data.refreshToken)
 }
 
 function clearSession() {
   accessToken = null
-  localStorage.removeItem(REFRESH_KEY)
 }
 
 async function request<T>(
@@ -104,12 +106,9 @@ async function request<T>(
 let refreshing: Promise<ApiResult<RefreshData>> | null = null
 
 async function doRefresh(): Promise<ApiResult<RefreshData>> {
-  const stored = localStorage.getItem(REFRESH_KEY)
   try {
-    // Body token wins over the cookie on the backend; with neither stored we rely on the cookie (Google login).
-    const result = await request<RefreshData>('POST', '/api/auth/refresh', {
-      body: stored ? { refreshToken: stored } : {},
-    })
+    // No body: the browser sends the httpOnly refresh cookie by itself.
+    const result = await request<RefreshData>('POST', '/api/auth/refresh')
     saveSession(result.body.data)
     return result
   } catch (err) {
@@ -158,9 +157,8 @@ export const api = {
   },
 
   async logout() {
-    const stored = localStorage.getItem(REFRESH_KEY)
     try {
-      return await request<null>('POST', '/api/auth/logout', { body: stored ? { refreshToken: stored } : {}, auth:true })
+      return await request<null>('POST', '/api/auth/logout', { auth: true })
     } finally {
       clearSession()
     }
@@ -168,7 +166,6 @@ export const api = {
 
   // Full-page navigation (not fetch): the browser must follow the redirect chain through Google.
   startGoogleLogin() {
-    localStorage.removeItem(REFRESH_KEY) // a stale body token would take priority over the Google cookie
     window.location.assign('/api/auth/google')
   },
 

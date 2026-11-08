@@ -131,7 +131,7 @@ export default function HomePage({ user, onUserChange, onLoggedOut }: HomePagePr
           <div className="flex flex-col gap-1">
             <h2 className="text-2xl font-semibold tracking-tight">Session</h2>
             <span className="text-[13px] text-muted">
-              Access token lasts about 15 minutes. Refresh token lives in an httpOnly cookie or local storage.
+              Access token lasts about 15 minutes. Refresh token lives in an httpOnly cookie.
             </span>
           </div>
           <div className="mt-auto flex flex-col gap-2.5">

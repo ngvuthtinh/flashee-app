@@ -25,7 +25,7 @@ export default function App() {
   const [session, setSession] = useState<Session>({ status: 'loading' })
 
   // Restore the session on page load: the access token is memory-only, so ask /refresh for a new one
-  // (it works from the localStorage token or the httpOnly cookie), then load the user.
+  // (it uses the httpOnly refresh cookie), then load the user.
   useEffect(() => {
     let cancelled = false
     api

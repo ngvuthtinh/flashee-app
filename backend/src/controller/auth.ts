@@ -38,8 +38,9 @@ export const authController = {
     async register(req: Request, res: Response, next: NextFunction) {
         try {
             const userAgent = getUserAgent(req);
-            const result = await authService.register(req.body, userAgent);
+            const { refreshToken, ...result } = await authService.register(req.body, userAgent);
 
+            res.cookie(REFRESH_COOKIE, refreshToken, refreshCookieOptions);
             res.status(201).json({
                 success: true,
                 message: 'user registered successfully',
@@ -53,8 +54,9 @@ export const authController = {
     async login(req: Request, res: Response, next: NextFunction) {
         try {
             const userAgent = getUserAgent(req);
-            const result = await authService.login(req.body, userAgent);
+            const { refreshToken, ...result } = await authService.login(req.body, userAgent);
 
+            res.cookie(REFRESH_COOKIE, refreshToken, refreshCookieOptions);
             res.status(200).json({
                 success: true,
                 message: 'Logged in successfully',
