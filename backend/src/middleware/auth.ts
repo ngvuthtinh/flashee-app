@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { UserRole } from '../model/User';
 import { AppError } from '../errors/AppError';
-import { revokedTokenRepository } from '../repository/RevokedToken';
+import { sessionService } from '../service/session';
 
 const jwtSecretEnv = process.env['JWT_SECRET'];
 if (!jwtSecretEnv) {
@@ -19,18 +19,18 @@ export async function protect(req: Request, _res: Response, next: NextFunction) 
     const token = readBearerToken(req);
     if (!token) throw AppError.unauthorized('Unauthorized: Please login to get access');
 
-    let decoded: { userId: string; role: UserRole; jti?: string; exp: number };
+    let decoded: { userId: string; role: UserRole; sid?: string; exp: number };
     try {
         decoded = jwt.verify(token, JWT_SECRET) as typeof decoded;
     } catch {
         throw AppError.unauthorized('Unauthorized: Invalid or expired token');
     }
 
-    if (!decoded.jti || await revokedTokenRepository.exists(decoded.jti)) {
-        throw AppError.unauthorized('Unauthorized: Token has been revoked');
+    if (!decoded.sid || !(await sessionService.isActive(decoded.sid, decoded.userId))) {
+        throw AppError.unauthorized('Unauthorized: Session has been revoked');
     }
 
-    req.user = { userId: decoded.userId, role: decoded.role, jti: decoded.jti, exp: decoded.exp };
+    req.user = { userId: decoded.userId, role: decoded.role, sid: decoded.sid, exp: decoded.exp };
     next();
 }
 

@@ -6,13 +6,14 @@ import { RefreshToken } from '../model/RefreshToken';
 export const refreshTokenRepository = {
     async create(data: {
         userId: string;
+        sessionId: string;
         tokenHash: string;
         userAgent: string | null;
         expiresAt: Date;
     }, db: Db = pool): Promise<RefreshToken> {
-        const query = `INSERT INTO refresh_tokens (id, user_id, token_hash, user_agent, expires_at)
-                       VALUES ($1, $2, $3, $4, $5) RETURNING *;`;
-        const values = [uuidv7(), data.userId, data.tokenHash, data.userAgent, data.expiresAt];
+        const query = `INSERT INTO refresh_tokens (id, user_id, session_id, token_hash, user_agent, expires_at)
+                       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *;`;
+        const values = [uuidv7(), data.userId, data.sessionId, data.tokenHash, data.userAgent, data.expiresAt];
         const result = await db.query<RefreshToken>(query, values);
         return result.rows[0]!;
     },
@@ -32,5 +33,10 @@ export const refreshTokenRepository = {
         const query = `UPDATE refresh_tokens SET revoked_at = NOW()
                        WHERE user_id = $1 AND revoked_at IS NULL;`;
         await db.query(query, [userId]);
+    },
+
+    async revokeAllBySessionId(sessionId: string, db: Db = pool): Promise<void> {
+        const query = `UPDATE refresh_tokens SET revoked_at = NOW() WHERE session_id = $1 AND revoked_at IS NULL;`;
+        await db.query(query, [sessionId]);
     }
 }

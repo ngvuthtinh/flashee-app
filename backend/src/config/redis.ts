@@ -8,7 +8,7 @@ if (!url) {
     throw new Error ('❌ Missing required environment variable: REDIS_URL');
 }
 
-const redis = createClient({ url });
+const redis = createClient({ url, disableOfflineQueue: true });
 
 redis.on('error', (err) => console.error('❌ Redis error:', err.message));
 

@@ -1,10 +1,11 @@
-export type RefreshToken = {
+export interface RefreshToken {
     id: string;
     user_id: string;
+    session_id: string;
     token_hash: string;
     user_agent: string | null;
     expires_at: Date;
     revoked_at: Date | null;
     created_at: Date;
     updated_at: Date;
-};
+}

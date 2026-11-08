@@ -9,6 +9,7 @@ import {
     OAUTH_LINK_COOKIE, OAUTH_STATE_COOKIE, oauthCookieOptions, clearOauthCookieOptions
 } from '../config/cookies';
 import { readBearerToken } from '../middleware/auth';
+import { sessionService } from '../service/session';
 
 function getUserAgent(req: Request): string | null {
     const userAgent = req.headers['user-agent'];
@@ -180,4 +181,13 @@ export const authController = {
         }
     },
 
+    async logoutAll(req: Request, res: Response, next: NextFunction) {
+        try {
+            await sessionService.revokeAllByUser(req.user!.userId);
+            res.clearCookie(REFRESH_COOKIE, clearRefreshCookieOptions);
+            res.status(200).json({ success: true, message: 'Logged out from all devices' });
+        } catch (error) {
+            next(error);
+        }
+    }
 }
