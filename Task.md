@@ -1,5 +1,17 @@
 # Chi tiết từng Task (Notion Page Content)
 
+## Lộ trình thực hiện tiếp theo
+
+Nguyên tắc: làm CRUD trước, **gắn authorization vào từng endpoint ngay lúc viết** (không làm authorization thành một giai đoạn riêng). Mỗi tính năng dạy một khái niệm.
+
+Mỗi endpoint mới hỏi 4 câu: công khai? / cần đăng nhập (`protect`)? / chỉ chủ sở hữu (kiểm tra ownership ở service, chống IDOR)? / chỉ admin (`protect` + `restrictTo('ADMIN')`)? Mặc định từ chối, route công khai phải chọn có chủ đích.
+
+- [ ] 1. **Thiết kế catalog** (Task 5): `products`, `product_variants`, SKU; `product_variants` là sub-entity của `products`.
+- [ ] 2. **API sản phẩm**: `GET` danh sách + chi tiết (công khai, học **pagination** offset vs cursor) và `POST/PUT/DELETE` cho admin (`restrictTo('ADMIN')`, dùng lại validation tự viết). Học REST và error shape nhất quán (Stage 1).
+- [ ] 3. **Route admin ban / thu hồi session** (xem Task 3): nhỏ, dùng lại `sessionService.revokeAllByUser`, là `restrictTo` thứ hai; chốt số phận `/logout-all`.
+- [ ] 4. **Giỏ hàng** (Task 6): lần đầu gặp **ownership / IDOR** thật (mỗi người chỉ thấy giỏ của mình).
+- [ ] 5. **Đơn hàng + checkout** (Task 8): transaction, locking, race condition, isolation level (Stage 2, lõi flash sale).
+
 ## EPIC 1: INFRASTRUCTURE & DATABASE MIGRATION
 
 ### 1. Setup Migration & Seed System
@@ -74,7 +86,7 @@ Thiết kế: JWT chứa `sid`; session là một dòng trong Postgres (nguồn 
 - [x] Dọn blacklist cũ: bỏ `jti`/`jwtid`, `RevokedToken.ts`, kiểm tra blacklist trong `protect`; migration `drop-revoked-tokens`.
 - [x] Migration `drop-revoked-tokens` và `create-sessions` đã chạy trên PC (DB Docker mới, 16 migration, không còn bảng `revoked_tokens`). Laptop: xem Task 13.
 - [x] Đã xác nhận thật (PC): đăng ký tạo 1 session + refresh token cùng `session_id`; `/refresh` bằng cookie xoay refresh token nhưng giữ nguyên session; access token mang `sid` (hạn 900s, không còn `jti`); key `session:<sid>` xuất hiện trong Redis (RedisInsight) với giá trị là `userId` và TTL ~300.
-- [ ] Còn phải test thật: logout → `/me` bằng token cũ 401 ngay; hai session rồi `/logout-all` → cả hai 401; dùng lại refresh token cũ → session bị thu hồi; `docker compose stop` (Redis) → `/me` vẫn 200 qua Postgres, log `Session cache read failed`; `UPDATE sessions SET revoked_at = now()` trực tiếp thì `/me` vẫn 200 cho đến khi `DEL session:<sid>` hoặc hết TTL.
+- [x] Test thật (đã chạy xong): logout → `/me` bằng token cũ 401 ngay; hai session rồi `/logout-all` → cả hai 401; dùng lại refresh token cũ → session bị thu hồi; `docker compose stop` (Redis) → `/me` vẫn 200 qua Postgres, log `Session cache read failed`; `UPDATE sessions SET revoked_at = now()` trực tiếp thì `/me` vẫn 200 cho đến khi `DEL session:<sid>` hoặc hết TTL.
 - [ ] **Admin thu hồi session (ban user):** chỉ dành cho admin, không làm nút "Log out all devices" cho user thường ở frontend. Cần route cho admin (`protect` + `restrictTo('ADMIN')`) nhận `userId` đích rồi gọi `sessionService.revokeAllByUser`, kèm cờ khoá/ban user (chặn login và refresh). Hiện `POST /logout-all` chỉ thu hồi session của chính người gọi.
 - Ghi nhớ: `DEL` cache lỗi lúc thu hồi thì cache cũ còn "hợp lệ" tối đa 300s (TTL là lưới an toàn); cache-aside có race giữa lúc nạp lại và lúc thu hồi (xử lý ở Stage 2); sau khi Redis restart nhiều request cùng miss dồn xuống Postgres (thundering herd, Stage 3); session chưa có hạn tuyệt đối riêng (hiện bị giới hạn bởi refresh token 30 ngày); `sessions` và `refresh_tokens` chỉ tăng, cần job dọn.
 
@@ -131,9 +143,9 @@ Thiết kế: JWT chứa `sid`; session là một dòng trong Postgres (nguồn 
 
 **Còn lại để đóng Task 12:**
 - [ ] Google Cloud Console: redirect URI khớp từng ký tự `http://localhost:3000/api/auth/google/callback`; thêm email vào *Test users* nếu consent screen đang ở chế độ Testing.
-- [ ] Test thật trên trình duyệt: `/api/auth/google` → đăng nhập Google → có cookie `refresh_token` → `/refresh` ra access token; email đã đăng ký mật khẩu bị từ chối; đăng nhập Google lần hai vào thẳng; user Google gọi `/login` bằng mật khẩu bị 401.
-- [ ] Test thật luồng kết nối: đăng nhập bằng mật khẩu → "Connect Google" → có dòng trong `oauth_accounts` → đăng xuất → "Continue with Google" vào đúng tài khoản cũ; kết nối lần hai không lỗi; Google đã gắn user khác bị `?link_error=`.
-- [ ] Test thật hướng session (xem checklist ở Task 3) và chạy migration `drop-revoked-tokens` / `create-sessions` trên laptop (Task 13).
+- [x] Test thật trên trình duyệt: `/api/auth/google` → đăng nhập Google → có cookie `refresh_token` → `/refresh` ra access token; email đã đăng ký mật khẩu bị từ chối; đăng nhập Google lần hai vào thẳng; user Google gọi `/login` bằng mật khẩu bị 401.
+- [x] Test thật luồng kết nối: đăng nhập bằng mật khẩu → "Connect Google" → có dòng trong `oauth_accounts` → đăng xuất → "Continue with Google" vào đúng tài khoản cũ; kết nối lần hai không lỗi; Google đã gắn user khác bị `?link_error=`.
+- [x] Test thật hướng session (xem checklist ở Task 3). Migration `drop-revoked-tokens` / `create-sessions` trên laptop: xem Task 13.
 - [x] Cập nhật `dbdiagram.md`: thêm `sessions`, `refresh_tokens.session_id`, `created_at` cho 8 bảng thiếu và `DEFAULT now()` cho các bảng đã chuẩn hoá; không có `revoked_tokens` vì đã bỏ bảng này.
 - [ ] Viết ADR đầy đủ cho các quyết định ở trên (mô hình `oauth_accounts`, từ chối gộp email, refresh token qua cookie, link Google bằng cookie `oauth_link`, session-in-JWT với Postgres làm nguồn sự thật + Redis cache-aside thay cho blacklist `jti`).
 
