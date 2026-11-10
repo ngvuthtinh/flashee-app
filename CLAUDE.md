@@ -54,7 +54,7 @@ When implementing a feature that touches one of these concepts, treat it as a te
 - **Backend**: Node.js + Express + TypeScript + PostgreSQL (`pg`, raw SQL — no ORM). Layered as Route → Controller → Service → Repository.
 - **Migrations**: `node-pg-migrate`, run via `npm run db:migrate` (backend). Migration files live in `backend/src/database/migrations/`. `dir` in `migrate.ts` is resolved via `__dirname`, not cwd.
 - **Frontend**: React 19 + Vite + TypeScript. Currently just scaffold — minimal investment expected here.
-- **Local DB**: PostgreSQL runs as a native Windows service (`postgresql-x64-18`) at `T:\Program\PostgreSQL`, not Docker. `psql` is not on PATH by default. Moving Postgres into Docker is a possible later step (port 5432 would conflict with the native service).
+- **Local DB**: PostgreSQL 18 runs in Docker via `backend/docker-compose.yml` (volume `postgres-data`, host port `${DB_PORT}` = `5433`; `POSTGRES_USER/PASSWORD/DB` come from `backend/.env` and only apply when the volume is first created). The old native Windows service (`postgresql-x64-18`, port 5432) is no longer used and can be set to Manual. After a fresh `docker compose up -d`, run `npm run db:migrate` then `npm run db:seed`. `psql` is not on PATH; use `docker compose exec postgres psql ...` or DBeaver.
 - **Redis**: runs in Docker via `backend/docker-compose.yml` (`docker compose up -d` from `backend`; Docker Desktop must be running). Client is `redis` (node-redis) in `backend/src/config/redis.ts`, connected before `app.listen`, with `disableOfflineQueue: true`. Used for the session cache (`session:<sid>` → `userId`, TTL 300s); Postgres stays the source of truth.
 
 ## Collaboration notes

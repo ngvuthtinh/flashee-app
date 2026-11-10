@@ -108,6 +108,7 @@ Table products {
   id uuid [primary key]
   name varchar [not null]
   description varchar
+  is_active boolean [not null, default: true] // false = hidden from the storefront (soft delete)
   created_at timestamp [default: `now()`]
   updated_at timestamp [default: `now()`]
 }
@@ -149,14 +150,16 @@ Table product_variants {
   id uuid [primary key]
   product_id uuid [not null, ref: > products.id]
   sku varchar [not null, unique]
-  price decimal(12,2) [not null]
-  stock_quantity int [not null, default: 0]
+  price decimal(12,2) [not null] // CHECK (price >= 0)
+  stock_quantity int [not null, default: 0] // CHECK (stock_quantity >= 0): the DB is the last line of defense against overselling
   color varchar
   size varchar
+  is_active boolean [not null, default: true] // false = variant no longer sold
   created_at timestamp [default: `now()`]
   updated_at timestamp [default: `now()`]
 
   indexes {
+    (product_id, color, size) [unique] // UNIQUE NULLS NOT DISTINCT: two variants of a product can't share color+size, even when color/size are NULL
     (product_id, price) // Optimizes filtering variants by product and price — also serves queries filtering by product_id alone (leftmost prefix), so no separate single-column index is needed
   }
 }

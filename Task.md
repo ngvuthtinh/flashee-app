@@ -6,7 +6,7 @@ Nguyên tắc: làm CRUD trước, **gắn authorization vào từng endpoint ng
 
 Mỗi endpoint mới hỏi 4 câu: công khai? / cần đăng nhập (`protect`)? / chỉ chủ sở hữu (kiểm tra ownership ở service, chống IDOR)? / chỉ admin (`protect` + `restrictTo('ADMIN')`)? Mặc định từ chối, route công khai phải chọn có chủ đích.
 
-- [ ] 1. **Thiết kế catalog** (Task 5): `products`, `product_variants`, SKU; `product_variants` là sub-entity của `products`.
+- [ ] 1. **Thiết kế catalog** (Task 5): `products`, `product_variants`, SKU; `product_variants` là sub-entity của `products`. (Schema đã có ràng buộc + `is_active`, còn phần phân định `Product ID` / SKU và `cart_items`.)
 - [ ] 2. **API sản phẩm**: `GET` danh sách + chi tiết (công khai, học **pagination** offset vs cursor) và `POST/PUT/DELETE` cho admin (`restrictTo('ADMIN')`, dùng lại validation tự viết). Học REST và error shape nhất quán (Stage 1).
 - [ ] 3. **Route admin ban / thu hồi session** (xem Task 3): nhỏ, dùng lại `sessionService.revokeAllByUser`, là `restrictTo` thứ hai; chốt số phận `/logout-all`.
 - [ ] 4. **Giỏ hàng** (Task 6): lần đầu gặp **ownership / IDOR** thật (mỗi người chỉ thấy giỏ của mình).
@@ -41,9 +41,9 @@ Mỗi endpoint mới hỏi 4 câu: công khai? / cần đăng nhập (`protect`)
 **Checklist thực hiện:**
 - [x] `backend/docker-compose.yml`: service `redis` (redis:7-alpine, AOF + volume `redis-data`) và `postgres` (postgres:18, volume `postgres-data` gắn ở `/var/lib/postgresql`, healthcheck `pg_isready`, biến `POSTGRES_USER/PASSWORD/DB` lấy từ `backend/.env` dùng chung với app, cổng `${DB_PORT}` = `5433` để không đụng Postgres native ở 5432).
 - [x] Dựng DB trống trong Docker: `npm run db:migrate` (16 migration chạy sạch từ đầu) + `npm run db:seed`; dữ liệu dev cũ ở Postgres native được bỏ (không chuyển sang). Backend kết nối Docker qua `DB_PORT=5433`, `.env.example` đã cập nhật.
-- [ ] Cập nhật `CLAUDE.md` mục "Local DB" (hiện vẫn ghi Postgres native, không Docker).
+- [x] Cập nhật `CLAUDE.md` mục "Local DB" (đã ghi Postgres chạy trong Docker, cổng 5433).
 - [ ] Laptop: `git pull`, sửa `backend/.env` (`DB_PORT=5433`, user/password/db khớp compose), `docker compose up -d`, `npm run db:migrate`, `npm run db:seed`.
-- [ ] Viết phần "Getting started" cho `README.md`: `copy .env.example .env` rồi điền giá trị riêng (cả `JWT_SECRET` và Google OAuth), `docker compose up -d`, migrate, seed, `npm run dev`.
+- [x] Viết phần "Getting started" cho `README.md`: `copy .env.example .env` rồi điền giá trị riêng (cả `JWT_SECRET` và Google OAuth), `docker compose up -d`, migrate, seed, `npm run dev`.
 - [ ] (Tuỳ chọn) Tắt service Postgres native `postgresql-x64-18` (đặt Startup type = Manual) khi mọi thứ ổn; nó hiện chỉ giữ cổng 5432 và chứa dữ liệu dev cũ.
 
 **Ghi nhớ:**
@@ -142,7 +142,7 @@ Thiết kế: JWT chứa `sid`; session là một dòng trong Postgres (nguồn 
 - [x] Redis: `backend/docker-compose.yml` (redis:7-alpine, AOF + volume), `config/redis.ts` (kết nối trước `app.listen`, `disableOfflineQueue`), dùng làm cache session (xem Task 3).
 
 **Còn lại để đóng Task 12:**
-- [ ] Google Cloud Console: redirect URI khớp từng ký tự `http://localhost:3000/api/auth/google/callback`; thêm email vào *Test users* nếu consent screen đang ở chế độ Testing.
+- [x] Google Cloud Console: redirect URI khớp `http://localhost:3000/api/auth/google/callback` và email đã nằm trong *Test users* (đã chứng minh bằng 2 bài test trình duyệt ngay bên dưới, đều qua được Google).
 - [x] Test thật trên trình duyệt: `/api/auth/google` → đăng nhập Google → có cookie `refresh_token` → `/refresh` ra access token; email đã đăng ký mật khẩu bị từ chối; đăng nhập Google lần hai vào thẳng; user Google gọi `/login` bằng mật khẩu bị 401.
 - [x] Test thật luồng kết nối: đăng nhập bằng mật khẩu → "Connect Google" → có dòng trong `oauth_accounts` → đăng xuất → "Continue with Google" vào đúng tài khoản cũ; kết nối lần hai không lỗi; Google đã gắn user khác bị `?link_error=`.
 - [x] Test thật hướng session (xem checklist ở Task 3). Migration `drop-revoked-tokens` / `create-sessions` trên laptop: xem Task 13.
@@ -154,11 +154,11 @@ Thiết kế: JWT chứa `sid`; session là một dòng trong Postgres (nguồn 
 - `readRefreshToken` vẫn nhận refresh token từ **body** (cho client không phải trình duyệt như Postman/mobile); có thể bỏ nhánh này để chỉ dùng cookie. Access token vẫn gửi bằng header `Authorization` (Stage 4: cân nhắc cookie-based session).
 - Bảo mật trình duyệt: refresh token không còn ở `localStorage` (giảm rủi ro XSS đánh cắp token 30 ngày); CSRF được che bởi header Bearer (access token) + cookie `SameSite=Lax` (refresh/logout). Chưa có CSP và `helmet`. Khi làm review/bình luận phải tránh render HTML thô (stored XSS). Khi chuyển sang cookie-based session phải thêm bảo vệ CSRF (CSRF token hoặc kiểm tra `Origin`).
 - Lưu tên/avatar Google vào `user_profiles` (Task 4); hiện chỉ dùng `name` cho `users.user_name`.
-- Dọn định kỳ `refresh_tokens` và `sessions` (đã hết hạn/đã revoke): hai bảng chỉ tăng, chưa có job dọn.
+- [x] Dọn định kỳ `sessions` và `refresh_tokens`: `cleanupService` (`service/cleanup.ts`) chạy lúc khởi động rồi mỗi 6 giờ (`setInterval`, lỗi chỉ log). Xoá session đã revoke quá 7 ngày hoặc không còn refresh token nào chưa hết hạn (refresh token đi theo bằng CASCADE), rồi xoá refresh token hết hạn còn sót. Hạn chế: token cũ đã quá hạn và bị xoá thì không còn kích hoạt reuse detection; chạy nhiều instance thì job chạy trùng (an toàn nhưng thừa; sau này dùng advisory lock hoặc cron riêng).
 - Chưa có "Unlink Google": khi làm phải chặn user chỉ có Google (không có mật khẩu) tự khoá mình ra ngoài.
 - Hai request kết nối Google cùng lúc có thể cùng qua bước kiểm tra rồi một cái bị UNIQUE từ chối (500) → bắt `23505` hoặc locking ở Stage 2.
-- Redis chết giữa lúc server chạy đã được xử lý: `disableOfflineQueue: true` + lỗi cache coi như miss, `protect` vẫn chạy qua Postgres (chậm hơn). Chưa thử thật bằng `docker compose stop`.
-- Lỗi của luồng Google đang đưa nguyên `err.message` lên query string (`?link_error=`, `?error=`); nên đổi sang mã lỗi.
+- Redis chết giữa lúc server chạy đã được xử lý: `disableOfflineQueue: true` + lỗi cache coi như miss, `protect` vẫn chạy qua Postgres (chậm hơn). Đã thử thật bằng `docker compose stop` (xem Task 3).
+- [x] Lỗi của luồng Google đưa **mã lỗi** lên query string (`?link_error=`, `?error=`), không còn `err.message`: `AppError.withCode(...)` (`google_failed`, `email_taken`, `email_not_verified`, `google_taken`, `google_already_linked`; callback thêm `google_denied`, `invalid_state`), lỗi chưa gắn mã rơi về `google_failed`; frontend map mã sang câu hiển thị (`App.tsx`, `HomePage.tsx`).
 - Đổi mật khẩu/quên mật khẩu/email verification hoãn lại (đổi mật khẩu sẽ cần `sessionService.revokeAllByUser` để thu hồi mọi session và refresh token). Khi có email verification mới cân nhắc lại chính sách gộp tài khoản.
 
 ## EPIC 3: CATALOG & INVENTORY
@@ -166,6 +166,10 @@ Thiết kế: JWT chứa `sid`; session là một dòng trong Postgres (nguồn 
 ### 5. Refactor Product - Variant & SKU Logic
 
 **Mục tiêu:** Chuẩn hóa luồng quản lý tồn kho và danh mục bán hàng.
+
+**Đã xong (mới ở mức schema):**
+- [x] Migration `add-catalog-constraints`: `products.is_active` và `product_variants.is_active` (soft delete / ẩn sản phẩm, mặc định `true`); `CHECK (price >= 0)` và `CHECK (stock_quantity >= 0)` trên `product_variants` (DB là chốt chặn cuối chống bán âm kho); `UNIQUE NULLS NOT DISTINCT (product_id, color, size)` chống trùng biến thể (kể cả khi `color`/`size` là NULL). Model `Product`/`ProductVariant` có thêm `is_active`.
+- Chưa có repository, service, controller, route nào cho catalog (backend mới chỉ có `auth`). Bước kế tiếp là Roadmap #2 (API đọc sản phẩm).
 
 **Checklist thực hiện:**
 - [ ] Định nghĩa rõ kiến trúc: `product_variants` là sub-entity phụ thuộc trực tiếp vào `products`.
