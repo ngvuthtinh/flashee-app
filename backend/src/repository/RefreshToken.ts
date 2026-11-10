@@ -38,5 +38,11 @@ export const refreshTokenRepository = {
     async revokeAllBySessionId(sessionId: string, db: Db = pool): Promise<void> {
         const query = `UPDATE refresh_tokens SET revoked_at = NOW() WHERE session_id = $1 AND revoked_at IS NULL;`;
         await db.query(query, [sessionId]);
+    },
+
+    async deleteExpired(now: Date, db: Db = pool): Promise<number> {
+        const query = `DELETE FROM refresh_tokens WHERE expires_at < $1;`;
+        const result = await db.query(query, [now]);
+        return result.rowCount ?? 0;
     }
 }

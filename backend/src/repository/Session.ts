@@ -25,5 +25,12 @@ export const sessionRepository = {
         const query = `UPDATE sessions SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL RETURNING id;`;
         const result = await db.query<{ id: string }>(query, [userId]);
         return result.rows.map((row) => row.id);
+    },
+
+    async deleteDead(now: Date, revokedRetentionDays: number, db: Db = pool): Promise<number> {
+        const query = `DELETE FROM sessions s WHERE s.revoked_at < NOW() - make_interval(days => $2)
+                       OR NOT EXISTS (SELECT 1 FROM refresh_tokens t WHERE t.session_id = s.id AND t.expires_at > $1);`;
+        const result = await db.query(query, [now, revokedRetentionDays])
+        return result.rowCount ?? 0;
     }
 }
