@@ -11,7 +11,3 @@ export const loginSchema: Schema = {
     email_address: [required, isString, isEmail],
     password: [required, isString],
 };
-
-export const refreshSchema: Schema = {
-    refreshToken: [required, isString],
-};
