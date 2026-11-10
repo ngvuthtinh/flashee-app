@@ -16,6 +16,17 @@ const card = 'flex min-w-0 flex-col gap-5 rounded-[22px] bg-white p-8 shadow-[0_
 const secondaryButton =
   'flex h-12 cursor-pointer items-center justify-center rounded-xl bg-canvas text-base font-medium hover:bg-[#ededf0] disabled:cursor-not-allowed disabled:opacity-60'
 
+const GENERIC_LINK_ERROR = 'Could not link Google. Please try again.'
+
+// Reason codes sent by the backend in ?link_error=<code>
+const LINK_ERRORS: Record<string, string> = {
+  google_denied: 'Google linking was cancelled.',
+  invalid_state: 'Google linking could not be verified. Please try again.',
+  google_taken: 'That Google account is already linked to another user.',
+  google_already_linked: 'Your account is already linked to a different Google account.',
+  google_failed: GENERIC_LINK_ERROR,
+}
+
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex flex-col gap-0.5">
@@ -32,7 +43,7 @@ export default function HomePage({ user, onUserChange, onLoggedOut }: HomePagePr
   const [linkNotice] = useState<{ ok: boolean; text: string } | null>(() => {
     const params = new URLSearchParams(window.location.search)
     const error = params.get('link_error')
-    if (error) return { ok: false, text: `Could not link Google: ${error}` }
+    if (error) return { ok: false, text: LINK_ERRORS[error] ?? GENERIC_LINK_ERROR }
     if (params.get('linked') === 'google') return { ok: true, text: 'Google account linked.' }
     return null
   })

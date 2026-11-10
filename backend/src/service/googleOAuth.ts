@@ -41,16 +41,16 @@ export const googleOAuthService = {
             }),
         });
 
-        if (!tokenRes.ok) throw AppError.badRequest('Google authorization failed');
+        if (!tokenRes.ok) throw AppError.badRequest('Google authorization failed').withCode('google_failed');
         const { access_token } = (await tokenRes.json() as { access_token?: string });
-        if (!access_token) throw AppError.badRequest('Google authorization failed');
+        if (!access_token) throw AppError.badRequest('Google authorization failed').withCode('google_failed');
 
         const infoRes = await fetch('https://openidconnect.googleapis.com/v1/userinfo', {
             headers: { Authorization: `Bearer ${access_token}` },
         });
-        if (!infoRes.ok) throw AppError.badRequest('Google authorization failed');
+        if (!infoRes.ok) throw AppError.badRequest('Google authorization failed').withCode('google_failed');
         const info = (await infoRes.json()) as { sub?: string; email?: string; email_verified?: boolean; name?: string };
-        if (!info.sub || !info.email) throw AppError.badRequest('Google authorization failed');
+        if (!info.sub || !info.email) throw AppError.badRequest('Google authorization failed').withCode('google_failed');
 
         return { sub: info.sub, email: info.email, emailVerified: info.email_verified === true, name: info.name ?? null };
     },

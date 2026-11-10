@@ -7,16 +7,21 @@ type Session = { status: 'loading' } | { status: 'out' } | { status: 'in'; user:
 
 // After a failed Google login the backend redirects to /login?error=<reason>.
 // Read it once at module load (not inside a component, so StrictMode can't read it twice).
+const GENERIC_OAUTH_ERROR = 'Google sign-in failed. Please try again.'
+
 const OAUTH_ERRORS: Record<string, string> = {
   google_denied: 'Google sign-in was cancelled.',
   invalid_state: 'Google sign-in could not be verified. Please try again.',
+  email_taken: 'This email is already registered with a password. Please sign in with your password.',
+  email_not_verified: 'Your Google email is not verified.',
+  google_failed: GENERIC_OAUTH_ERROR,
 }
 
 function readOAuthError(): string | null {
   const code = new URLSearchParams(window.location.search).get('error')
   if (!code) return null
   window.history.replaceState(null, '', '/')
-  return OAUTH_ERRORS[code] ?? code
+  return OAUTH_ERRORS[code] ?? GENERIC_OAUTH_ERROR
 }
 
 const initialOAuthError = readOAuthError()

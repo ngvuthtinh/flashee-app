@@ -218,11 +218,11 @@ export const authService = {
         const owner = await oauthAccountRepository.findByProviderUser('google', profile.sub);
         if (owner) {
             if (owner.user_id === userId) return;
-            throw AppError.conflict('This Google account is already linked to another user');
+            throw AppError.conflict('This Google account is already linked to another user').withCode('google_taken');
         }
 
         if (await oauthAccountRepository.findByUserAndProvider(userId, 'google')) {
-            throw AppError.conflict('Your account is already linked to a different Google account');
+            throw AppError.conflict('Your account is already linked to a different Google account').withCode('google_already_linked');
         }
 
         await oauthAccountRepository.create({ userId, provider: 'google', providerUserId: profile.sub });
@@ -230,7 +230,7 @@ export const authService = {
 
     async loginWithGoogle(profile: GoogleProfile, userAgent: string | null): Promise<{ refreshToken: string }> {
         if (!profile.emailVerified) {
-            throw AppError.badRequest('Google email is not verified');
+            throw AppError.badRequest('Google email is not verified').withCode('email_not_verified');
         }
 
         const linked = await oauthAccountRepository.findByProviderUser('google', profile.sub);
@@ -244,7 +244,7 @@ export const authService = {
 
         const email = normalizeEmail(profile.email);
         if (await userRepository.findByEmail(email)) {
-            throw AppError.badRequest('Email has already been registered');
+            throw AppError.badRequest('Email has already been registered').withCode('email_taken');
         }
 
         return withTransaction(async (client) => {

@@ -1,4 +1,6 @@
 export class AppError extends Error {
+    public code?: string;
+
     constructor(
         public readonly statusCode: number,
         message: string,
@@ -6,6 +8,11 @@ export class AppError extends Error {
     ) {
         super(message);
         this.name = 'AppError';
+    }
+
+    withCode(code: string): this {
+        this.code = code;
+        return this;
     }
 
     static badRequest(message: string, errors?: Record<string, string>) { return new AppError(400, message, errors); }

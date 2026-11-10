@@ -178,7 +178,7 @@ export const authController = {
             res.cookie(REFRESH_COOKIE, refreshToken, refreshCookieOptions);
             res.redirect(googleConfig.frontendUrl);
         } catch (err) {
-            if (err instanceof AppError) return fail(err.message);
+            if (err instanceof AppError) return fail(err.code ?? 'google_failed');
             next(err);
         }
     },
