@@ -4,6 +4,7 @@ export interface Product {
     description?: string;
     created_at?: Date;
     updated_at?: Date;
+    is_active: boolean;
 }
 
 export interface ProductImage {
@@ -33,4 +34,5 @@ export interface ProductVariant {
     stock_quantity: number;
     color?: string;
     size?: string;
+    is_active: boolean;
 }
