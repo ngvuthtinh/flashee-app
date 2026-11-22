@@ -56,6 +56,7 @@ When implementing a feature that touches one of these concepts, treat it as a te
 - **Frontend**: React 19 + Vite + TypeScript. Currently just scaffold — minimal investment expected here.
 - **Local DB**: PostgreSQL 18 runs in Docker via `backend/docker-compose.yml` (volume `postgres-data`, host port `${DB_PORT}` = `5433`; `POSTGRES_USER/PASSWORD/DB` come from `backend/.env` and only apply when the volume is first created). The old native Windows service (`postgresql-x64-18`, port 5432) is no longer used and can be set to Manual. After a fresh `docker compose up -d`, run `npm run db:migrate` then `npm run db:seed`. `psql` is not on PATH; use `docker compose exec postgres psql ...` or DBeaver.
 - **Redis**: runs in Docker via `backend/docker-compose.yml` (`docker compose up -d` from `backend`; Docker Desktop must be running). Client is `redis` (node-redis) in `backend/src/config/redis.ts`, connected before `app.listen`, with `disableOfflineQueue: true`. Used for the session cache (`session:<sid>` → `userId`, TTL 300s); Postgres stays the source of truth.
+- **Cleanup job**: `backend/src/service/cleanup.ts` (`cleanupService.start()` called from `index.ts`) runs at startup and every 6 hours inside the API process (`setInterval(...).unref()`, errors are only logged). It deletes dead sessions (revoked more than 7 days ago, or with no unexpired refresh token; their refresh tokens go with them via `ON DELETE CASCADE`) and leftover expired refresh tokens. Running several API instances would run it in parallel (safe but redundant).
 
 ## Collaboration notes
 

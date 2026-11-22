@@ -72,23 +72,15 @@ export const authController = {
             const found = readRefreshToken(req);
             if (!found) throw AppError.unauthorized('Missing refresh token');
 
-            const result = await authService.refresh(found.token, getUserAgent(req));
+            const result = await authService.refresh(found.token);
 
             if (found.fromCookie) {
-                res.cookie(REFRESH_COOKIE, result.refreshToken, refreshCookieOptions);
-                res.status(200).json({
-                    success: true,
-                    message: 'Token refreshed successfully',
-                    data: { accessToken: result.accessToken },
-                });
+                if (result.refreshToken) {
+                    res.cookie(REFRESH_COOKIE, result.refreshToken, refreshCookieOptions);   // chỉ khi vừa xoay
+                }
+                res.status(200).json({ success: true, message: 'Token refreshed successfully', data: { accessToken: result.accessToken } });
                 return;
             }
-
-            res.status(200).json({
-                success: true,
-                message: 'Token refreshed successfully',
-                data: result,
-            });
         } catch (error) {
             next(error);
         }
@@ -168,7 +160,7 @@ export const authController = {
         try {
             const profile = await googleOAuthService.exchangeCode(code);
 
-            
+
             if (linkUserId) {
                 await authService.linkGoogle(linkUserId, profile);
                 return res.redirect(`${googleConfig.frontendUrl}/?linked=google`);

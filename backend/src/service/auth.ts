@@ -3,7 +3,6 @@ import jwt from 'jsonwebtoken';
 import { userRepository } from '../repository/User';
 import { RegisterDTO, LoginDTO, SafeUser } from '../model/User';
 import crypto from 'crypto';
-import { refreshTokenRepository } from '../repository/RefreshToken';
 import pool from '../config/db';
 import { Db, withTransaction } from '../database/transaction';
 import { AppError } from '../errors/AppError';
@@ -21,6 +20,17 @@ const JWT_SECRET: string = jwtSecretEnv;
 const JWT_EXPIRES_IN = process.env['JWT_EXPIRES_IN'];
 if (!JWT_EXPIRES_IN) {
     throw new Error('JWT_EXPIRES_IN is not defined in the environment variables');
+}
+
+const REFRESH_ROTATE_AFTER_MS = 60 * 60 * 1000;
+
+function generateRefreshToken(): { token: string; hash: string } {
+    const token = crypto.randomBytes(48).toString('hex');
+    return { token, hash: hashToken(token) };
+}
+
+function refreshExpiry(): Date {
+    return new Date(Date.now() + REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000);
 }
 
 function generateToken(userId: string, role: string, sessionId: string): string {
@@ -47,25 +57,10 @@ function normalizeEmail(email: string): string {
     return email.trim().toLowerCase();
 }
 
-async function issueRefreshToken(data: { userId: string, sessionId: string, userAgent: string | null }, db: Db = pool): Promise<string> {
-    const refreshToken = crypto.randomBytes(48).toString('hex');
-    const expiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000);
-
-    await refreshTokenRepository.create({
-        userId: data.userId,
-        sessionId: data.sessionId,
-        tokenHash: hashToken(refreshToken),
-        userAgent: data.userAgent,
-        expiresAt,
-    }, db);
-
-    return refreshToken;
-}
-
-async function startSession(userId: string, userAgent: string | null, db: Db): Promise<{ sessionId: string, refreshToken: string }> {
-    const session = await sessionRepository.create({ userId, userAgent }, db);
-    const refreshToken = await issueRefreshToken({ userId, sessionId: session.id, userAgent }, db);
-    return { sessionId: session.id, refreshToken };
+async function startSession(userId: string, userAgent: string | null, db: Db = pool): Promise<{ sessionId: string, refreshToken: string }> {
+    const { token, hash } = generateRefreshToken();
+    const session = await sessionRepository.create({ userId, userAgent, tokenHash: hash, expiresAt: refreshExpiry() }, db);
+    return { sessionId: session.id, refreshToken: token };
 }
 
 function isUniqueViolation(error: unknown, constraint: string): boolean {
@@ -141,46 +136,48 @@ export const authService = {
         });
     },
 
-    async refresh(refreshToken: string, userAgent: string | null): Promise<{ accessToken: string; refreshToken: string }> {
-        const stored = await refreshTokenRepository.findByHash(hashToken(refreshToken));
-        if (!stored) {
+    async refresh(refreshToken: string): Promise<{ accessToken: string; refreshToken?: string }> {
+        const hash = hashToken(refreshToken);
+        const session = await sessionRepository.findByTokenHash(hash);
+
+        if (!session) {
+            const reused = await sessionRepository.findByPreviousTokenHash(hash);
+            if (reused) {
+                await sessionService.revoke(reused.id);
+                throw AppError.unauthorized('Refresh token reuse detected');
+            }
             throw AppError.unauthorized('Invalid refresh token');
         }
 
-        if (stored.revoked_at) {
-            await sessionService.revoke(stored.session_id);
-            throw AppError.unauthorized('Refresh token reuse detected');
+        if (session.revoked_at) {
+            throw AppError.unauthorized('Session has been revoked');
         }
-
-        if (stored.expires_at < new Date()) {
+        if (session.expires_at < new Date()) {
             throw AppError.unauthorized('Refresh token expired');
         }
 
-        const session = await sessionRepository.findActiveById(stored.session_id);
-        if (!session) {
-            throw AppError.unauthorized('Session has been revoked');
-        }
-
-        const user = await userRepository.findById(stored.user_id);
+        const user = await userRepository.findById(session.user_id);
         if (!user) {
             throw AppError.unauthorized('Invalid refresh token');
         }
 
-        return withTransaction(async (client) => {
-            await refreshTokenRepository.revoke(stored.id, client);
-            const newRefreshToken = await issueRefreshToken({ userId: user.id, sessionId: stored.session_id, userAgent }, client);
-            return {
-                accessToken: generateToken(user.id, user.role, stored.session_id),
-                refreshToken: newRefreshToken
-            };
-        });
+        const accessToken = generateToken(user.id, user.role, session.id);
+
+        // F5 and normal refreshes inside the threshold only mint a new access token
+        if (Date.now() - session.token_issued_at.getTime() < REFRESH_ROTATE_AFTER_MS) {
+            return { accessToken };
+        }
+
+        const { token, hash: newHash } = generateRefreshToken();
+        const rotated = await sessionRepository.rotate(session.id, hash, newHash, refreshExpiry());
+        return rotated ? { accessToken, refreshToken: token } : { accessToken };
     },
 
     async logout(refreshToken: string | null, accessToken: string | null): Promise<void> {
-        const stored = refreshToken ? await refreshTokenRepository.findByHash(hashToken(refreshToken)) : null;
+        const session = refreshToken ? await sessionRepository.findByTokenHash(hashToken(refreshToken)) : null;
         const decoded = accessToken ? decodeAccessToken(accessToken) : null;
 
-        const sessionId = stored?.session_id ?? decoded?.sid;
+        const sessionId = session?.id ?? decoded?.sid;
         if (sessionId) {
             await sessionService.revoke(sessionId);
         }

@@ -1,5 +1,3 @@
-import { withTransaction } from '../database/transaction';
-import { refreshTokenRepository } from '../repository/RefreshToken';
 import { sessionRepository } from '../repository/Session';
 import { sessionCacheRepository } from '../repository/SessionCache';
 
@@ -22,10 +20,7 @@ export const sessionService = {
     },
 
     async revoke(sessionId: string): Promise<void> {
-        await withTransaction(async (client) => {
-            await sessionRepository.revoke(sessionId, client);
-            await refreshTokenRepository.revokeAllBySessionId(sessionId, client);
-        });
+        await sessionRepository.revoke(sessionId);
         await sessionCacheRepository.delete([sessionId]).catch((err) => {
             console.error('❌ Session cache delete failed:', err.message);
             return null;
@@ -33,11 +28,7 @@ export const sessionService = {
     },
 
     async revokeAllByUser(userId: string): Promise<void> {
-        const sessionIds = await withTransaction(async (client) => {
-            const ids = await sessionRepository.revokeAllByUserId(userId, client);
-            await refreshTokenRepository.revokeAllByUserId(userId, client);
-            return ids;
-        });
+        const sessionIds = await sessionRepository.revokeAllByUserId(userId);
         await sessionCacheRepository.delete(sessionIds).catch((err) => {
             console.error('❌ Session cache delete failed:', err.message);
             return null;

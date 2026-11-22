@@ -5,4 +5,8 @@ export interface Session {
     revoked_at: Date | null;
     created_at: Date;
     updated_at: Date;
+    token_hash: string;
+    previous_token_hash: string | null;
+    token_issued_at: Date;
+    expires_at: Date;
 }

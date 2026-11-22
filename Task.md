@@ -52,6 +52,26 @@ Mỗi endpoint mới hỏi 4 câu: công khai? / cần đăng nhập (`protect`)
 - Terminal VS Code mở trước lúc cài Docker không nhận lệnh `docker`: dùng PowerShell ngoài hoặc mở lại VS Code. Chạy `docker compose` phải đứng trong `backend`.
 - Công cụ xem trực quan: RedisInsight / extension Redis cho VS Code (kết nối `127.0.0.1:6379`, không user/mật khẩu), DBeaver hoặc dbdiagram.io (dán `dbdiagram.md`) cho Postgres.
 
+### 14. Tách cleanup job thành cron chạy song song với backend
+
+**Mục tiêu:** Dọn dữ liệu chết (`sessions`, `refresh_tokens`) bằng một tiến trình **độc lập** với API, để có nhiều lựa chọn hơn khi deploy.
+
+**Vì sao tách:** hiện `cleanupService.start()` chạy bằng `setInterval` **trong chính API process** (`index.ts`). Hệ quả: nhiều instance API thì job chạy trùng; job gắn với vòng đời của API (API restart/deploy thì lịch dọn bị reset); không cho phép scale API và job riêng; không tận dụng được scheduler của nền tảng (cron, CronJob, Task Scheduler).
+
+**Checklist thực hiện:**
+- [ ] Entry point độc lập, ví dụ `backend/src/jobs/cleanup.ts`, chạy **một lần rồi thoát** (run-once), thêm script `npm run job:cleanup`; tái dùng `cleanupService.run`.
+- [ ] Gỡ `cleanupService.start()` và `setInterval` khỏi `index.ts` (API không còn tự dọn).
+- [ ] Job tự đóng kết nối (`pool`, và Redis nếu có dùng) khi xong để process thoát; thoát với exit code khác 0 khi lỗi; log rõ số dòng đã xoá.
+- [ ] Đưa các hằng số (chu kỳ, `REVOKED_RETENTION_DAYS`) ra cấu hình/env thay vì viết cứng.
+- [ ] Chọn cách lập lịch và ghi lại quyết định: dev (service `cleanup` trong `docker-compose.yml` chạy vòng lặp, hoặc Task Scheduler/cron trên máy); production (cron hệ thống, Kubernetes CronJob, scheduler của nền tảng, hoặc `pg_cron` nếu dọn hoàn toàn trong DB).
+- [ ] Chống chạy trùng khi có nhiều bản chạy cùng lúc: `pg_try_advisory_lock` (gặp lại ở Stage 2, locking) hoặc bảo đảm chỉ có một scheduler.
+- [ ] Cập nhật `CLAUDE.md` (mục Cleanup job), `README.md`, và ghi chú cleanup ở Task 12.
+
+**Ghi nhớ:**
+- Câu `DELETE` hiện tại **idempotent** (chạy lặp vẫn đúng) nên chạy trùng chỉ thừa chứ không sai.
+- Khi bảng lớn, nên xoá theo **lô** (batch, `LIMIT`) để không giữ lock quá lâu.
+- Hạn chế đã biết giữ nguyên: refresh token quá hạn bị xoá thì không còn kích hoạt reuse detection.
+
 ## EPIC 2: AUTHENTICATION & USERS
 
 ### 3. Refactor Auth & Token Blacklist
@@ -88,7 +108,7 @@ Thiết kế: JWT chứa `sid`; session là một dòng trong Postgres (nguồn 
 - [x] Đã xác nhận thật (PC): đăng ký tạo 1 session + refresh token cùng `session_id`; `/refresh` bằng cookie xoay refresh token nhưng giữ nguyên session; access token mang `sid` (hạn 900s, không còn `jti`); key `session:<sid>` xuất hiện trong Redis (RedisInsight) với giá trị là `userId` và TTL ~300.
 - [x] Test thật (đã chạy xong): logout → `/me` bằng token cũ 401 ngay; hai session rồi `/logout-all` → cả hai 401; dùng lại refresh token cũ → session bị thu hồi; `docker compose stop` (Redis) → `/me` vẫn 200 qua Postgres, log `Session cache read failed`; `UPDATE sessions SET revoked_at = now()` trực tiếp thì `/me` vẫn 200 cho đến khi `DEL session:<sid>` hoặc hết TTL.
 - [ ] **Admin thu hồi session (ban user):** chỉ dành cho admin, không làm nút "Log out all devices" cho user thường ở frontend. Cần route cho admin (`protect` + `restrictTo('ADMIN')`) nhận `userId` đích rồi gọi `sessionService.revokeAllByUser`, kèm cờ khoá/ban user (chặn login và refresh). Hiện `POST /logout-all` chỉ thu hồi session của chính người gọi.
-- Ghi nhớ: `DEL` cache lỗi lúc thu hồi thì cache cũ còn "hợp lệ" tối đa 300s (TTL là lưới an toàn); cache-aside có race giữa lúc nạp lại và lúc thu hồi (xử lý ở Stage 2); sau khi Redis restart nhiều request cùng miss dồn xuống Postgres (thundering herd, Stage 3); session chưa có hạn tuyệt đối riêng (hiện bị giới hạn bởi refresh token 30 ngày); `sessions` và `refresh_tokens` chỉ tăng, cần job dọn.
+- Ghi nhớ: `DEL` cache lỗi lúc thu hồi thì cache cũ còn "hợp lệ" tối đa 300s (TTL là lưới an toàn); cache-aside có race giữa lúc nạp lại và lúc thu hồi (xử lý ở Stage 2); sau khi Redis restart nhiều request cùng miss dồn xuống Postgres (thundering herd, Stage 3); session chưa có hạn tuyệt đối riêng (hiện bị giới hạn bởi refresh token 30 ngày); `sessions` và `refresh_tokens` đã có job dọn định kỳ (`cleanupService`, xem Task 12).
 
 ### 4. User Profile & Ranking System
 
@@ -154,7 +174,7 @@ Thiết kế: JWT chứa `sid`; session là một dòng trong Postgres (nguồn 
 - `readRefreshToken` vẫn nhận refresh token từ **body** (cho client không phải trình duyệt như Postman/mobile); có thể bỏ nhánh này để chỉ dùng cookie. Access token vẫn gửi bằng header `Authorization` (Stage 4: cân nhắc cookie-based session).
 - Bảo mật trình duyệt: refresh token không còn ở `localStorage` (giảm rủi ro XSS đánh cắp token 30 ngày); CSRF được che bởi header Bearer (access token) + cookie `SameSite=Lax` (refresh/logout). Chưa có CSP và `helmet`. Khi làm review/bình luận phải tránh render HTML thô (stored XSS). Khi chuyển sang cookie-based session phải thêm bảo vệ CSRF (CSRF token hoặc kiểm tra `Origin`).
 - Lưu tên/avatar Google vào `user_profiles` (Task 4); hiện chỉ dùng `name` cho `users.user_name`.
-- [x] Dọn định kỳ `sessions` và `refresh_tokens`: `cleanupService` (`service/cleanup.ts`) chạy lúc khởi động rồi mỗi 6 giờ (`setInterval`, lỗi chỉ log). Xoá session đã revoke quá 7 ngày hoặc không còn refresh token nào chưa hết hạn (refresh token đi theo bằng CASCADE), rồi xoá refresh token hết hạn còn sót. Hạn chế: token cũ đã quá hạn và bị xoá thì không còn kích hoạt reuse detection; chạy nhiều instance thì job chạy trùng (an toàn nhưng thừa; sau này dùng advisory lock hoặc cron riêng).
+- [x] Dọn định kỳ `sessions` và `refresh_tokens`: `cleanupService` (`service/cleanup.ts`) chạy lúc khởi động rồi mỗi 6 giờ (`setInterval`, lỗi chỉ log). Xoá session đã revoke quá 7 ngày hoặc không còn refresh token nào chưa hết hạn (refresh token đi theo bằng CASCADE), rồi xoá refresh token hết hạn còn sót. Hạn chế: token cũ đã quá hạn và bị xoá thì không còn kích hoạt reuse detection; chạy nhiều instance thì job chạy trùng (an toàn nhưng thừa; sau này dùng advisory lock hoặc cron riêng, xem Task 14).
 - Chưa có "Unlink Google": khi làm phải chặn user chỉ có Google (không có mật khẩu) tự khoá mình ra ngoài.
 - Hai request kết nối Google cùng lúc có thể cùng qua bước kiểm tra rồi một cái bị UNIQUE từ chối (500) → bắt `23505` hoặc locking ở Stage 2.
 - Redis chết giữa lúc server chạy đã được xử lý: `disableOfflineQueue: true` + lỗi cache coi như miss, `protect` vẫn chạy qua Postgres (chậm hơn). Đã thử thật bằng `docker compose stop` (xem Task 3).
