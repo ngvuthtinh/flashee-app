@@ -48,6 +48,7 @@ Vite proxies `/api/*` to the backend, so the browser talks to a single origin an
 | `npm run db:migrate:down` | Roll back the last migration |
 | `npm run db:migrate:create -- <name>` | Create a new SQL migration file |
 | `npm run db:seed` | Load seed data (countries, users, profiles) |
+| `npm run job:cleanup` | Delete dead sessions once and exit (not scheduled automatically; register a scheduler when deploying) |
 | `docker compose down -v` | Stop containers **and delete all data** (Postgres + Redis volumes) |
 
 RedisInsight is available at http://localhost:5540 (connect to host `redis`, port `6379` from inside the compose network).

@@ -6,7 +6,6 @@ import { errorHandler } from './middleware/errorHandler';
 import authRoutes from './routes/auth';
 import { googleConfig } from './config/google';
 import redis from './config/redis';
-import { cleanupService } from './service/cleanup';
 
 const app = express();
 const PORT = process.env['PORT'] ?? 3000;
@@ -32,8 +31,6 @@ async function start() {
   app.listen(PORT, () => {
     console.log(`🚀 Server running on http://localhost:${PORT}`);
   });
-
-  cleanupService.start();
 }
 
 start().catch((err) => {

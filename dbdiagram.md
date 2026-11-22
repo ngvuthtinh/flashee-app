@@ -29,29 +29,17 @@ Table sessions {
   id uuid [primary key] // the `sid` claim inside the access JWT
   user_id uuid [not null, ref: > users.id] // ON DELETE CASCADE
   user_agent varchar(255)
-  revoked_at timestamp // NULL = active; set when the session is revoked (logout, logout-all, password change)
+  token_hash varchar [unique, not null] // SHA-256 of the CURRENT refresh token; the raw token is never stored (one refresh token per session)
+  previous_token_hash varchar // hash of the token before the last rotation; presenting it again means reuse, so the session is revoked
+  token_issued_at timestamp [not null] // when the current token was issued; it is only rotated once older than a threshold (1 hour)
+  expires_at timestamp [not null] // refresh token / session expiry (30 days), extended on every rotation
+  revoked_at timestamp // NULL = active; set when the session is revoked (logout, logout-all, token reuse, ban)
   created_at timestamp [default: `now()`]
   updated_at timestamp [default: `now()`]
 
   indexes {
     user_id // List / revoke all sessions of a user
-  }
-}
-
-Table refresh_tokens {
-  id uuid [primary key]
-  user_id uuid [not null, ref: > users.id] // ON DELETE CASCADE
-  session_id uuid [not null, ref: > sessions.id] // ON DELETE CASCADE; rotation keeps the same session_id
-  token_hash varchar [unique, not null] // SHA-256 of the token; the raw token is never stored
-  user_agent varchar(255)
-  expires_at timestamp [not null]
-  revoked_at timestamp // set when rotated/logged out; reuse of a revoked token revokes the whole session
-  created_at timestamp [default: `now()`]
-  updated_at timestamp [default: `now()`]
-
-  indexes {
-    user_id // Revoke all tokens of a user
-    session_id // Tokens of one session
+    previous_token_hash // Reuse detection lookup
   }
 }
 

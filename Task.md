@@ -54,23 +54,49 @@ Mỗi endpoint mới hỏi 4 câu: công khai? / cần đăng nhập (`protect`)
 
 ### 14. Tách cleanup job thành cron chạy song song với backend
 
-**Mục tiêu:** Dọn dữ liệu chết (`sessions`, `refresh_tokens`) bằng một tiến trình **độc lập** với API, để có nhiều lựa chọn hơn khi deploy.
+**Mục tiêu:** Dọn dữ liệu chết (`sessions`) bằng một tiến trình **độc lập** với API, để có nhiều lựa chọn hơn khi deploy.
 
-**Vì sao tách:** hiện `cleanupService.start()` chạy bằng `setInterval` **trong chính API process** (`index.ts`). Hệ quả: nhiều instance API thì job chạy trùng; job gắn với vòng đời của API (API restart/deploy thì lịch dọn bị reset); không cho phép scale API và job riêng; không tận dụng được scheduler của nền tảng (cron, CronJob, Task Scheduler).
+**Vì sao tách:** trước đây `cleanupService.start()` chạy bằng `setInterval` **trong chính API process** (`index.ts`). Hệ quả: nhiều instance API thì job chạy trùng; job gắn với vòng đời của API (API restart/deploy thì lịch dọn bị reset); không cho phép scale API và job riêng; không tận dụng được scheduler của nền tảng (cron, CronJob, Task Scheduler).
 
 **Checklist thực hiện:**
-- [ ] Entry point độc lập, ví dụ `backend/src/jobs/cleanup.ts`, chạy **một lần rồi thoát** (run-once), thêm script `npm run job:cleanup`; tái dùng `cleanupService.run`.
-- [ ] Gỡ `cleanupService.start()` và `setInterval` khỏi `index.ts` (API không còn tự dọn).
-- [ ] Job tự đóng kết nối (`pool`, và Redis nếu có dùng) khi xong để process thoát; thoát với exit code khác 0 khi lỗi; log rõ số dòng đã xoá.
-- [ ] Đưa các hằng số (chu kỳ, `REVOKED_RETENTION_DAYS`) ra cấu hình/env thay vì viết cứng.
-- [ ] Chọn cách lập lịch và ghi lại quyết định: dev (service `cleanup` trong `docker-compose.yml` chạy vòng lặp, hoặc Task Scheduler/cron trên máy); production (cron hệ thống, Kubernetes CronJob, scheduler của nền tảng, hoặc `pg_cron` nếu dọn hoàn toàn trong DB).
-- [ ] Chống chạy trùng khi có nhiều bản chạy cùng lúc: `pg_try_advisory_lock` (gặp lại ở Stage 2, locking) hoặc bảo đảm chỉ có một scheduler.
-- [ ] Cập nhật `CLAUDE.md` (mục Cleanup job), `README.md`, và ghi chú cleanup ở Task 12.
+- [x] Entry point độc lập `backend/src/jobs/cleanup.ts`, chạy **một lần rồi thoát** (run-once), script `npm run job:cleanup`; dùng `cleanupService.run`.
+- [x] Gỡ `cleanupService.start()` và `setInterval` khỏi `index.ts` (API không còn tự dọn).
+- [x] Job đóng kết nối `pool` trong `finally` để process thoát ngay (không import Redis vì không cần); lỗi thì `process.exitCode = 1`; luôn log số session đã xoá.
+- [x] Số ngày giữ session đã revoke ra cấu hình: `CLEANUP_REVOKED_RETENTION_DAYS` (mặc định 7) trong `.env` / `.env.example`. Chu kỳ không còn trong code vì do bộ lập lịch quyết định.
+- [x] Chống chạy trùng: `pg_try_advisory_lock(727001)` trong `cleanupService` (lấy và nhả bằng cùng một `client`); chạy chồng thì bản sau bỏ qua; khoá tự nhả khi connection đứt.
+- [ ] **Bật lịch chạy (chưa làm, có chủ đích):** hiện cleanup **không tự chạy**, chạy tay bằng `npm run job:cleanup`. Khi deploy chọn bộ lập lịch theo nền tảng: dev (Windows Task Scheduler chạy `npm run job:cleanup` mỗi 6 giờ, nhớ đặt thư mục làm việc là `backend`); VM + Docker Compose (service vòng lặp hoặc cron gọi `docker compose run --rm`); Kubernetes CronJob (`concurrencyPolicy: Forbid`); scheduler của nền tảng (Railway, Render, Cloud Run Jobs...); hoặc `pg_cron` nếu dọn hoàn toàn trong DB. Docker không tự chạy theo lịch, cần có bộ lập lịch. Dockerfile cho backend sẽ viết khi chọn nơi deploy.
+- [x] Cập nhật `CLAUDE.md` (mục Cleanup job), `README.md`, và ghi chú cleanup ở Task 12.
 
 **Ghi nhớ:**
 - Câu `DELETE` hiện tại **idempotent** (chạy lặp vẫn đúng) nên chạy trùng chỉ thừa chứ không sai.
 - Khi bảng lớn, nên xoá theo **lô** (batch, `LIMIT`) để không giữ lock quá lâu.
-- Hạn chế đã biết giữ nguyên: refresh token quá hạn bị xoá thì không còn kích hoạt reuse detection.
+- Sau khi gộp refresh token vào `sessions` (Task 15), job chỉ còn dọn một bảng bằng một câu `DELETE` (session hết hạn hoặc đã revoke quá 7 ngày).
+- Run-once là lựa chọn để mọi nơi deploy đều dùng được: cùng một lệnh, chỉ đổi bộ lập lịch; exit code cho scheduler biết thành công hay lỗi.
+- Lớp chống chạy chồng ở DB (advisory lock) bổ sung cho lớp ở nền tảng (ví dụ `concurrencyPolicy: Forbid` của CronJob), còn bảo vệ được cả khi ai đó chạy tay lúc job đang chạy.
+
+### 15. Gộp refresh token vào session & xoay có ngưỡng
+
+**Mục tiêu:** Theo góp ý của anh mentor: mỗi session chỉ có **một** refresh token đang sống, và F5 không được làm cấp lại refresh token.
+
+**Vấn đề trước đó:** `/refresh` xoay token ở mọi lần gọi mà frontend gọi nó mỗi lần F5 (access token nằm trong RAM), nên mỗi F5 ghi thêm một dòng `refresh_tokens` và đặt cookie mới; bảng phình ra và phải có job dọn.
+
+**Đã chốt:** một user có nhiều session; mỗi session có đúng một refresh token đang sống (nằm ngay trong dòng `sessions`); cùng thiết bị, cùng tài khoản đăng nhập lại thì thêm một session mới; hướng A (xoay có ngưỡng).
+
+**Checklist thực hiện:**
+- [x] Migration `merge-refresh-tokens-into-sessions`: thêm `token_hash` (UNIQUE), `previous_token_hash` (có index), `token_issued_at`, `expires_at` vào `sessions` và bỏ bảng `refresh_tokens` (xoá hết session cũ nên mọi người đăng nhập lại; chỉ ổn ở DB dev). `Down` dựng lại bảng cũ.
+- [x] `sessionRepository`: `create` nhận `tokenHash` + `expiresAt`; thêm `findByTokenHash`, `findByPreviousTokenHash`, `rotate`; `deleteDead` còn một câu `DELETE`. Bỏ `RefreshToken` repository và model.
+- [x] `rotate` là compare-and-swap (optimistic concurrency): `UPDATE sessions SET previous_token_hash = token_hash, token_hash = <mới>, ... WHERE id = $1 AND token_hash = <cũ> AND revoked_at IS NULL`, trả `true` nếu `rowCount === 1`. Không cần transaction vì một câu `UPDATE` đã nguyên tử.
+- [x] `authService`: `startSession` tạo session kèm refresh token bằng một `INSERT`; `refresh` tra theo `token_hash`, nếu không thấy thì tra `previous_token_hash` (dùng lại token cũ thì thu hồi session + 401), chỉ xoay khi token cũ hơn `REFRESH_ROTATE_AFTER_MS` (1 giờ), `rotate` thua cuộc thì chỉ trả access token; `logout` tìm session theo `token_hash`; `refresh` bỏ tham số `userAgent`.
+- [x] `sessionService.revoke` / `revokeAllByUser` chỉ còn một bảng (bỏ transaction), vẫn xoá cache Redis sau khi Postgres xong.
+- [x] Controller `/refresh`: chỉ `res.cookie(...)` khi vừa xoay (`result.refreshToken` có giá trị); nhánh body trả `refreshToken` chỉ khi vừa xoay.
+- [ ] Test thật: F5 nhiều lần thì `token_hash` không đổi và không có `Set-Cookie` mới; `UPDATE sessions SET token_issued_at = now() - interval '2 hours'` rồi F5 thì token xoay và `previous_token_hash` nhận hash cũ; dùng lại token cũ thì session bị thu hồi; logout rồi F5 về trang đăng nhập.
+- [ ] Chạy migration trên laptop (xem Task 13).
+
+**Ghi nhớ:**
+- Đánh đổi: phát hiện đánh cắp yếu hơn (chỉ nhớ **một** thế hệ token trước; trong khoảng ngưỡng hai bên dùng chung một token không bị phát hiện; không còn lịch sử token để điều tra). Ngưỡng nhỏ thì gần xoay-mỗi-lần, ngưỡng lớn thì ít ghi hơn.
+- `token_issued_at` ghi bằng `new Date()` của Node (không dùng `NOW()`) để cùng nguồn đồng hồ với phép so sánh `Date.now()`, vì cột `timestamp` không có múi giờ.
+- Hai tab cùng xoay một lúc: tab thua chỉ nhận access token (cookie mới đã do tab kia đặt). Tab còn dùng token cũ đúng lúc vừa xoay có thể bị coi là "dùng lại" và bị revoke session (hiếm, có thể thêm khoảng ân hạn sau).
+- Cần ghi vào ADR: lý do gộp, giới hạn "nhớ một thế hệ", ngưỡng đã chọn.
 
 ## EPIC 2: AUTHENTICATION & USERS
 
@@ -80,27 +106,27 @@ Mỗi endpoint mới hỏi 4 câu: công khai? / cần đăng nhập (`protect`)
 
 **Checklist thực hiện:**
 - [x] Thống nhất thuật toán băm mật khẩu chuẩn (Argon2id hoặc Bcrypt với cost factor ≥ 12).
-- [x] Tạo bảng `refresh_tokens`: Lưu refresh token đã cấp, gắn với `user_id`, thông tin thiết bị/User-Agent, thời gian hết hạn (`expires_at`).
+- [x] Lưu refresh token (chỉ hash) gắn với `user_id`, thông tin thiết bị/User-Agent, thời gian hết hạn (`expires_at`): ban đầu là bảng `refresh_tokens`, sau đó **gộp vào `sessions`** (mỗi session một refresh token, xem Task 15).
 - [x] Cơ chế thu hồi access token: làm blacklist `jti` trước (Postgres, rồi chuyển sang Redis `revoked:<jti>` + TTL), sau đó **thay bằng session** (xem phần "Session-based revocation" bên dưới) vì blacklist không thu hồi hàng loạt được và mất dữ liệu Redis thì token sống lại. Đã bỏ `jti`/`jwtid`, `revokedTokenRepository` và bảng `revoked_tokens`.
 
 **Refresh token rotation (xong):**
 - [x] A. Tạo `database/transaction.ts` với `withTransaction` (BEGIN/COMMIT/ROLLBACK + `client.release()`), export kiểu `Db = Pool | PoolClient`.
-- [x] B. `refreshTokenRepository` nhận thêm tham số `db: Db = pool`; thêm `revokeAllByUserId`.
-- [x] C. `authService.refresh`: không thấy → 401; đã revoke (reuse) → thu hồi **session** của token đó (`sessionService.revoke`) + 401; hết hạn → 401; session đã bị thu hồi → 401; hợp lệ → revoke cũ + phát mới (cùng `session_id`) trong 1 transaction.
+- [x] B. (lịch sử) `refreshTokenRepository` nhận thêm tham số `db: Db = pool`; thêm `revokeAllByUserId`. Repository này đã bỏ khi gộp vào `sessions` (Task 15).
+- [x] C. `authService.refresh` (theo mô hình sau khi gộp, Task 15): tra theo `token_hash`, không thấy thì tra `previous_token_hash` (dùng lại token cũ → thu hồi **session** + 401); session đã revoke hoặc hết hạn → 401; hợp lệ → luôn cấp access token mới (cùng `sid`), chỉ xoay refresh token khi đã cũ hơn ngưỡng 1 giờ.
 - [x] D. Controller + route `POST /api/auth/refresh`.
 - [x] E. `POST /api/auth/logout`: thu hồi session của refresh token (hoặc `sid` của access token nếu không có refresh token), nên access token cũ chết ngay.
 - [x] Test Postman: R1 → R2 OK; dùng lại R1 → 401 và R2 cũng bị revoke.
 - [x] Rút `JWT_EXPIRES_IN` xuống ~15m sau khi `/refresh` chạy được.
-- Ghi nhớ: 2 request refresh cùng 1 token đến cùng lúc có thể cùng qua bước kiểm tra (race) → xử lý bằng `SELECT ... FOR UPDATE` ở Stage 2.
+- Ghi nhớ: race khi 2 request cùng xoay một refresh token được xử lý bằng `UPDATE ... WHERE token_hash = <cũ>` (optimistic concurrency, Task 15): request thua chỉ nhận access token. `SELECT ... FOR UPDATE` (pessimistic) vẫn là chủ đề so sánh ở Stage 2.
 
 **Session-based revocation (session-in-JWT, thu hồi access token ngay):**
 
-Thiết kế: JWT chứa `sid`; session là một dòng trong Postgres (nguồn sự thật), Redis là cache-aside (`session:<sid>` → `userId`, TTL 300s). Allow-list: "không có trong cache" nghĩa là *chưa biết* nên hỏi Postgres, nhờ đó Redis mất dữ liệu không làm ai bị đăng xuất hay token đã thu hồi sống lại. Một user có nhiều session, một session có nhiều refresh token (mỗi lần rotation thêm một dòng, cùng `session_id`).
-- [x] Migration `create-sessions`: bảng `sessions (id = sid, user_id, user_agent, revoked_at, created_at, updated_at)` + trigger + index `user_id`; thêm `refresh_tokens.session_id` NOT NULL (FK `ON DELETE CASCADE`, đã xoá refresh token cũ khi migrate, chỉ ổn ở DB dev).
-- [x] Model `Session`; `sessionRepository` (`create`, `findActiveById`, `revoke`, `revokeAllByUserId` trả danh sách `sid`); `sessionCacheRepository` (`get`/`set`/`delete`); `refreshTokenRepository.create` nhận `sessionId`, thêm `revokeAllBySessionId`.
-- [x] `startSession` trong `authService`: login/register/Google tạo session + refresh token **trong cùng một transaction**; `generateToken(userId, role, sessionId)` đưa `sid` vào JWT; `/refresh` giữ nguyên `session_id` và kiểm tra session còn hiệu lực (đọc thẳng Postgres, không qua cache vì hiếm và là cổng cấp token mới).
+Thiết kế: JWT chứa `sid`; session là một dòng trong Postgres (nguồn sự thật), Redis là cache-aside (`session:<sid>` → `userId`, TTL 300s). Allow-list: "không có trong cache" nghĩa là *chưa biết* nên hỏi Postgres, nhờ đó Redis mất dữ liệu không làm ai bị đăng xuất hay token đã thu hồi sống lại. Một user có nhiều session, mỗi session có đúng một refresh token đang sống (nằm ngay trong dòng `sessions`, xem Task 15; trước đó là bảng `refresh_tokens` nhiều dòng cho mỗi session).
+- [x] Migration `create-sessions`: bảng `sessions (id = sid, user_id, user_agent, revoked_at, created_at, updated_at)` + trigger + index `user_id`; thêm `refresh_tokens.session_id` NOT NULL (FK `ON DELETE CASCADE`, đã xoá refresh token cũ khi migrate, chỉ ổn ở DB dev). Cột và bảng này sau đó được thay bởi migration `merge-refresh-tokens-into-sessions` (Task 15).
+- [x] Model `Session`; `sessionRepository` (`create`, `findActiveById`, `revoke`, `revokeAllByUserId` trả danh sách `sid`); `sessionCacheRepository` (`get`/`set`/`delete`); (`refreshTokenRepository` thời đó nhận `sessionId` và có `revokeAllBySessionId`; về sau được gộp vào `sessionRepository`, Task 15).
+- [x] `startSession` trong `authService`: login/register/Google tạo session kèm refresh token (một `INSERT`; `register` vẫn nằm trong transaction cùng với việc tạo user); `generateToken(userId, role, sessionId)` đưa `sid` vào JWT; `/refresh` giữ nguyên `session_id` và kiểm tra session còn hiệu lực (đọc thẳng Postgres, không qua cache vì hiếm và là cổng cấp token mới).
 - [x] `protect` gọi `sessionService.isActive(sid, userId)`: Redis hit thì so `userId`; miss thì hỏi Postgres rồi nạp lại cache; token không có `sid` bị từ chối. `req.user` có `sid` (`types/express.d.ts`).
-- [x] `sessionService.revoke(sessionId)` / `revokeAllByUser(userId)`: cập nhật Postgres trong transaction, **sau khi commit** mới `DEL` cache Redis.
+- [x] `sessionService.revoke(sessionId)` / `revokeAllByUser(userId)`: cập nhật Postgres (một bảng sau khi gộp refresh token, không cần transaction), **sau khi xong** mới `DEL` cache Redis.
 - [x] `/logout` thu hồi session; reuse detection thu hồi đúng session bị lộ (không phải mọi session của user); `POST /api/auth/logout-all` (có `protect`) thu hồi mọi session của chính người gọi.
 - [x] Chịu lỗi Redis: `disableOfflineQueue: true` để lệnh lỗi nhanh thay vì treo; lỗi đọc cache = miss (hỏi Postgres), lỗi ghi/xoá cache chỉ log. **Không bắt lỗi Postgres** (nuốt lỗi trong transaction làm `COMMIT` thành `ROLLBACK` âm thầm).
 - [x] Dọn blacklist cũ: bỏ `jti`/`jwtid`, `RevokedToken.ts`, kiểm tra blacklist trong `protect`; migration `drop-revoked-tokens`.
@@ -108,7 +134,7 @@ Thiết kế: JWT chứa `sid`; session là một dòng trong Postgres (nguồn 
 - [x] Đã xác nhận thật (PC): đăng ký tạo 1 session + refresh token cùng `session_id`; `/refresh` bằng cookie xoay refresh token nhưng giữ nguyên session; access token mang `sid` (hạn 900s, không còn `jti`); key `session:<sid>` xuất hiện trong Redis (RedisInsight) với giá trị là `userId` và TTL ~300.
 - [x] Test thật (đã chạy xong): logout → `/me` bằng token cũ 401 ngay; hai session rồi `/logout-all` → cả hai 401; dùng lại refresh token cũ → session bị thu hồi; `docker compose stop` (Redis) → `/me` vẫn 200 qua Postgres, log `Session cache read failed`; `UPDATE sessions SET revoked_at = now()` trực tiếp thì `/me` vẫn 200 cho đến khi `DEL session:<sid>` hoặc hết TTL.
 - [ ] **Admin thu hồi session (ban user):** chỉ dành cho admin, không làm nút "Log out all devices" cho user thường ở frontend. Cần route cho admin (`protect` + `restrictTo('ADMIN')`) nhận `userId` đích rồi gọi `sessionService.revokeAllByUser`, kèm cờ khoá/ban user (chặn login và refresh). Hiện `POST /logout-all` chỉ thu hồi session của chính người gọi.
-- Ghi nhớ: `DEL` cache lỗi lúc thu hồi thì cache cũ còn "hợp lệ" tối đa 300s (TTL là lưới an toàn); cache-aside có race giữa lúc nạp lại và lúc thu hồi (xử lý ở Stage 2); sau khi Redis restart nhiều request cùng miss dồn xuống Postgres (thundering herd, Stage 3); session chưa có hạn tuyệt đối riêng (hiện bị giới hạn bởi refresh token 30 ngày); `sessions` và `refresh_tokens` đã có job dọn định kỳ (`cleanupService`, xem Task 12).
+- Ghi nhớ: `DEL` cache lỗi lúc thu hồi thì cache cũ còn "hợp lệ" tối đa 300s (TTL là lưới an toàn); cache-aside có race giữa lúc nạp lại và lúc thu hồi (xử lý ở Stage 2); sau khi Redis restart nhiều request cùng miss dồn xuống Postgres (thundering herd, Stage 3); session có `expires_at` (30 ngày, gia hạn mỗi lần xoay refresh token); `sessions` có job dọn (`npm run job:cleanup`, xem Task 14, chưa bật lịch).
 
 ### 4. User Profile & Ranking System
 
@@ -174,7 +200,7 @@ Thiết kế: JWT chứa `sid`; session là một dòng trong Postgres (nguồn 
 - `readRefreshToken` vẫn nhận refresh token từ **body** (cho client không phải trình duyệt như Postman/mobile); có thể bỏ nhánh này để chỉ dùng cookie. Access token vẫn gửi bằng header `Authorization` (Stage 4: cân nhắc cookie-based session).
 - Bảo mật trình duyệt: refresh token không còn ở `localStorage` (giảm rủi ro XSS đánh cắp token 30 ngày); CSRF được che bởi header Bearer (access token) + cookie `SameSite=Lax` (refresh/logout). Chưa có CSP và `helmet`. Khi làm review/bình luận phải tránh render HTML thô (stored XSS). Khi chuyển sang cookie-based session phải thêm bảo vệ CSRF (CSRF token hoặc kiểm tra `Origin`).
 - Lưu tên/avatar Google vào `user_profiles` (Task 4); hiện chỉ dùng `name` cho `users.user_name`.
-- [x] Dọn định kỳ `sessions` và `refresh_tokens`: `cleanupService` (`service/cleanup.ts`) chạy lúc khởi động rồi mỗi 6 giờ (`setInterval`, lỗi chỉ log). Xoá session đã revoke quá 7 ngày hoặc không còn refresh token nào chưa hết hạn (refresh token đi theo bằng CASCADE), rồi xoá refresh token hết hạn còn sót. Hạn chế: token cũ đã quá hạn và bị xoá thì không còn kích hoạt reuse detection; chạy nhiều instance thì job chạy trùng (an toàn nhưng thừa; sau này dùng advisory lock hoặc cron riêng, xem Task 14).
+- [x] Dọn `sessions`: ban đầu `cleanupService` chạy bằng `setInterval` trong API, sau đó **tách thành job riêng chạy một lần** (`npm run job:cleanup`, có advisory lock, xem Task 14) và API không còn tự dọn. Job xoá session hết hạn hoặc đã revoke quá 7 ngày. **Chưa bật lịch**, chạy tay khi cần.
 - Chưa có "Unlink Google": khi làm phải chặn user chỉ có Google (không có mật khẩu) tự khoá mình ra ngoài.
 - Hai request kết nối Google cùng lúc có thể cùng qua bước kiểm tra rồi một cái bị UNIQUE từ chối (500) → bắt `23505` hoặc locking ở Stage 2.
 - Redis chết giữa lúc server chạy đã được xử lý: `disableOfflineQueue: true` + lỗi cache coi như miss, `protect` vẫn chạy qua Postgres (chậm hơn). Đã thử thật bằng `docker compose stop` (xem Task 3).
