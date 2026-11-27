@@ -4,6 +4,7 @@ import cors from 'cors';
 import './config/db';
 import { errorHandler } from './middleware/errorHandler';
 import authRoutes from './routes/auth';
+import productRoutes from './routes/product'
 import { googleConfig } from './config/google';
 import redis from './config/redis';
 
@@ -22,6 +23,7 @@ app.get('/health', (_req, res) => {
 });
 
 app.use('/api/auth', authRoutes);
+app.use('/api/product', productRoutes);
 app.use(errorHandler);
 
 async function start() {

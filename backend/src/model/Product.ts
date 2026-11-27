@@ -36,3 +36,26 @@ export interface ProductVariant {
     size?: string;
     is_active: boolean;
 }
+
+export interface ProductListItem {
+    id: string;
+    name: string;
+    description: string | null;
+    price_from: string;
+    in_stock: boolean;
+}
+
+export interface PublicVariant {
+    id: string;
+    color: string | null;
+    size: string | null;
+    price: string;
+    in_stock: boolean;
+}
+
+export interface ProductDetail {
+    id: string;
+    name: string;
+    description: string | null;
+    variants: PublicVariant[];
+}
