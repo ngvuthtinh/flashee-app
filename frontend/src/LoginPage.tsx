@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react'
+import { Link } from 'react-router'
 import { api, ApiError, describeError, type User } from './api'
 
 type Mode = 'login' | 'signup'
@@ -102,7 +103,9 @@ export default function LoginPage({ initialError, onAuthenticated }: LoginPagePr
   return (
     <div className="flex min-h-svh flex-col">
       <header className="flex h-13 items-center justify-between border-b border-[#e5e5ea] bg-white/70 px-8">
-        <span className="text-[19px] font-semibold tracking-tight">flashee</span>
+        <Link to="/" className="text-[19px] font-semibold tracking-tight">
+          flashee
+        </Link>
         <span className="text-sm text-muted">Store</span>
       </header>
 

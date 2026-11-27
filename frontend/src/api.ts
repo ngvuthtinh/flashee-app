@@ -33,6 +33,35 @@ export interface LoginInput {
   password: string
 }
 
+// Public catalog (GET /api/product). Prices are DECIMAL columns, which Postgres returns as strings.
+export interface ProductListItem {
+  id: string
+  name: string
+  description: string | null
+  price_from: string
+  in_stock: boolean
+}
+
+export interface ProductVariant {
+  id: string
+  color: string | null
+  size: string | null
+  price: string
+  in_stock: boolean
+}
+
+export interface ProductDetail {
+  id: string
+  name: string
+  description: string | null
+  variants: ProductVariant[]
+}
+
+export interface ProductPage {
+  items: ProductListItem[]
+  pagination: { limit: number; has_more: boolean; next_cursor: string | null }
+}
+
 interface Envelope<T> {
   success: boolean
   message?: string
@@ -162,6 +191,19 @@ export const api = {
     } finally {
       clearSession()
     }
+  },
+
+  // Keyset pagination: pass the previous page's next_cursor as `after` to get the next page.
+  async listProducts(after: string | null, limit = 9) {
+    const params = new URLSearchParams({ limit: String(limit) })
+    if (after) params.set('after', after)
+    const result = await request<ProductPage>('GET', `/api/product?${params}`)
+    return result.body.data
+  },
+
+  async getProduct(id: string) {
+    const result = await request<{ product: ProductDetail }>('GET', `/api/product/${encodeURIComponent(id)}`)
+    return result.body.data.product
   },
 
   // Full-page navigation (not fetch): the browser must follow the redirect chain through Google.

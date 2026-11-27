@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
+import { Link } from 'react-router'
 import { api, ApiError, type ApiResult, type User } from './api'
 
 interface HomePageProps {
@@ -86,7 +87,9 @@ export default function HomePage({ user, onUserChange, onLoggedOut }: HomePagePr
   return (
     <div className="flex min-h-svh flex-col">
       <header className="flex min-h-13 flex-wrap items-center justify-between gap-2 border-b border-[#e5e5ea] bg-white/70 px-8">
-        <span className="text-[19px] font-semibold tracking-tight">flashee</span>
+        <Link to="/" className="text-[19px] font-semibold tracking-tight">
+          flashee
+        </Link>
         <div className="flex items-center gap-4">
           <span className="text-sm text-muted">Signed in as {user.email_address}</span>
           <button

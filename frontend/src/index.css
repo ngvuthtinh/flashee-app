@@ -13,6 +13,35 @@
   --color-danger: #d70015;
 }
 
+/* In the base layer so utilities like outline-none (login inputs, which draw their own ring) still win. */
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--color-brand);
+    outline-offset: 2px;
+  }
+}
+
+/* One entrance sequence per screen: elements rise and fade in, staggered by --i (set inline per element).
+   It animates the `translate` property (not `transform`) so it does not fight Tailwind's hover:scale-*.
+   `backwards` applies the start state during the delay and releases the element when finished. */
+@keyframes rise {
+  from {
+    opacity: 0;
+    translate: 0 14px;
+  }
+}
+
+.reveal {
+  animation: rise 0.7s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  animation-delay: calc(var(--i, 0) * 70ms);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal {
+    animation: none;
+  }
+}
+
 body {
   margin: 0;
   background: var(--color-canvas);

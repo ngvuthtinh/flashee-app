@@ -1,7 +1,11 @@
 import { useEffect, useState } from 'react'
+import { Navigate, Outlet, Route, Routes, useLocation, useNavigate } from 'react-router'
 import { api, type User } from './api'
 import LoginPage from './LoginPage'
 import HomePage from './HomePage'
+import ProductList from './ProductList'
+import ProductView from './ProductView'
+import StoreHeader from './StoreHeader'
 
 type Session = { status: 'loading' } | { status: 'out' } | { status: 'in'; user: User }
 
@@ -20,14 +24,40 @@ const OAUTH_ERRORS: Record<string, string> = {
 function readOAuthError(): string | null {
   const code = new URLSearchParams(window.location.search).get('error')
   if (!code) return null
-  window.history.replaceState(null, '', '/')
+  // The error is shown on the sign-in screen, which lives at /account while logged out.
+  window.history.replaceState(null, '', '/account')
   return OAUTH_ERRORS[code] ?? GENERIC_OAUTH_ERROR
 }
 
 const initialOAuthError = readOAuthError()
 
+// Returning from "Connect Google" lands on /?linked=google (or ?link_error=...): move it to the account page,
+// which reads and clears those query params itself. Runs before the router mounts, so the router starts there.
+{
+  const params = new URLSearchParams(window.location.search)
+  if (params.has('linked') || params.has('link_error')) {
+    window.history.replaceState(null, '', `/account${window.location.search}`)
+  }
+}
+
+// Shared frame of the public storefront: header on top, the matched child route below.
+function StoreLayout({ user }: { user: User | null | undefined }) {
+  return (
+    <div className="flex min-h-svh flex-col">
+      <StoreHeader user={user} />
+      <Outlet />
+    </div>
+  )
+}
+
 export default function App() {
   const [session, setSession] = useState<Session>({ status: 'loading' })
+  const navigate = useNavigate()
+  const { pathname } = useLocation()
+
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [pathname])
 
   // Restore the session on page load: the access token is memory-only, so ask /refresh for a new one
   // (it uses the httpOnly refresh cookie), then load the user.
@@ -47,24 +77,43 @@ export default function App() {
     }
   }, [])
 
-  if (session.status === 'loading') {
-    return <div className="grid min-h-svh place-items-center text-muted">Loading…</div>
-  }
+  // The storefront is public: it renders right away, without waiting for the session check.
+  const headerUser = session.status === 'loading' ? undefined : session.status === 'in' ? session.user : null
 
-  if (session.status === 'out') {
-    return (
+  let account
+  if (session.status === 'loading') {
+    account = <div className="grid min-h-svh place-items-center text-muted">Loading…</div>
+  } else if (session.status === 'out') {
+    account = (
       <LoginPage
         initialError={initialOAuthError}
-        onAuthenticated={(user) => setSession({ status: 'in', user })}
+        onAuthenticated={(user) => {
+          setSession({ status: 'in', user })
+          navigate('/')
+        }}
+      />
+    )
+  } else {
+    account = (
+      <HomePage
+        user={session.user}
+        onUserChange={(user) => setSession({ status: 'in', user })}
+        onLoggedOut={() => {
+          setSession({ status: 'out' })
+          navigate('/')
+        }}
       />
     )
   }
 
   return (
-    <HomePage
-      user={session.user}
-      onUserChange={(user) => setSession({ status: 'in', user })}
-      onLoggedOut={() => setSession({ status: 'out' })}
-    />
+    <Routes>
+      <Route element={<StoreLayout user={headerUser} />}>
+        <Route index element={<ProductList />} />
+        <Route path="product/:id" element={<ProductView />} />
+      </Route>
+      <Route path="account" element={account} />
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   )
 }
