@@ -195,6 +195,31 @@ Thiết kế: JWT chứa `sid`; session là một dòng trong Postgres (nguồn 
 - [x] Cập nhật `dbdiagram.md`: thêm `sessions`, `refresh_tokens.session_id`, `created_at` cho 8 bảng thiếu và `DEFAULT now()` cho các bảng đã chuẩn hoá; không có `revoked_tokens` vì đã bỏ bảng này.
 - [ ] Viết ADR đầy đủ cho các quyết định ở trên (mô hình `oauth_accounts`, từ chối gộp email, refresh token qua cookie, link Google bằng cookie `oauth_link`, session-in-JWT với Postgres làm nguồn sự thật + Redis cache-aside thay cho blacklist `jti`).
 
+**Các trường hợp Google OAuth (tham chiếu):**
+
+Định danh là `sub` (cột `oauth_accounts.provider_user_id`), không phải email. `loginWithGoogle` kiểm tra theo thứ tự dưới đây; **liên kết chỉ xảy ra ở luồng "Connect Google"** (đã đăng nhập), "Continue with Google" **không** tự gộp tài khoản.
+
+| Luồng | Tình huống | Kết quả (mã lỗi) |
+|---|---|---|
+| Continue with Google | Email Google chưa xác minh | Từ chối (`email_not_verified`) |
+| | `sub` đã liên kết với một user | Đăng nhập vào user đó, bất kể email hiện tại |
+| | `sub` mới, email đã có tài khoản | **Từ chối**, không tự gộp (`email_taken`); chống pre-hijacking vì chưa có email verification |
+| | `sub` mới, email mới | Tạo user + `oauth_accounts` + session |
+| | Người dùng huỷ / `state` sai | `google_denied` / `invalid_state` |
+| Connect Google | `sub` chưa gắn ai, user chưa có Google | Tạo liên kết (không so email, email khác nhau vẫn được) |
+| | `sub` đã gắn chính user này | Không làm gì, báo thành công (idempotent) |
+| | `sub` đã gắn user khác | `google_taken` (409) |
+| | User đã gắn một Google khác | `google_already_linked` (409) |
+| | Cookie `oauth_link` sai / hết hạn, `state` không khớp | `invalid_state` |
+
+**Cần giải quyết sau (Google OAuth):**
+- [ ] **Email Google trùng email của một user khác** lúc Connect: hiện vẫn cho phép (Google đó luôn đăng nhập vào user đang kết nối, không bao giờ vào user kia). Quyết định giữ nguyên hay chặn bằng 409.
+- [ ] **Race** hai request Connect cùng một `sub`: một cái dính UNIQUE nên trả 500; bắt `23505` để trả `google_taken`, hoặc locking ở Stage 2.
+- [ ] **Unlink Google**: phải chặn user chỉ có Google (không có mật khẩu) tự khoá mình ra ngoài.
+- [ ] **Hiển thị Google đã liên kết** (email/tên) ở trang tài khoản: `oauth_accounts` chưa lưu email, cần thêm cột hoặc gọi lại Google.
+- [ ] **UX cho `email_taken`**: hướng dẫn "đăng nhập bằng mật khẩu rồi Connect Google"; khi có email verification thì cân nhắc tự liên kết nếu cả hai bên đã xác minh.
+- [ ] Test các trường hợp `email_taken`, idempotent, `google_taken`, `google_already_linked`.
+
 **Ghi nhớ / để sau:**
 - Hai callback lần đầu của cùng một người chạy đồng thời có thể cùng qua bước kiểm tra rồi một cái bị UNIQUE từ chối (500) → xử lý bằng bắt `23505` hoặc locking ở Stage 2.
 - `readRefreshToken` vẫn nhận refresh token từ **body** (cho client không phải trình duyệt như Postman/mobile); có thể bỏ nhánh này để chỉ dùng cookie. Access token vẫn gửi bằng header `Authorization` (Stage 4: cân nhắc cookie-based session).
